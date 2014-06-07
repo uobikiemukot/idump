@@ -1,4 +1,5 @@
 #!/bin/bash
+# usage: ndump FILE1 FILE2 FILE3...
 
 export FRAMEBUFFER=/dev/fb0
 OPT="-f -r 90"

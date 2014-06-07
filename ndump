@@ -1,8 +1,5 @@
 #!/bin/bash
+# usage: ndump URL
 
-TMPFILE=`mktemp --tmpdir=/tmp idump.XXXXXX`
-
-wget -q --timeout=2 -O $TMPFILE $1 \
-&& FRAMEBUFFER="/dev/fb0" ~/idump/idump -f $TMPFILE > /dev/null 2>&1
-
-rm -f $TMPFILE
+wget -q --timeout=2 -O - $1 \
+| FRAMEBUFFER="/dev/fb0" idump -f > /dev/null 2>&1
