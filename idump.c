@@ -3,13 +3,13 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <linux/fb.h>
+#include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/mman.h>
-#include <sys/ioctl.h>
-#include <stdint.h>
-#include <stdbool.h>
 #include <string.h>
+#include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -144,7 +144,7 @@ long int estrtol(const char *nptr, char **endptr, int base)
 	return ret;
 }
 
-/* some functions for Linux framebuffer */
+/* framebuffer functions */
 int str2num(char *str)
 {
 	if (str == NULL)
@@ -402,7 +402,7 @@ void usage()
 	printf("idump [-h] [-f] [-r angle] image\n"
 		"-h: show this help\n"
 		"-f: fit image to display\n"
-		"-r: rotate image (90/180/270)"
+		"-r: rotate image (90/180/270)\n"
 		);
 }
 
@@ -442,7 +442,7 @@ char *make_temp_file(char *template)
 	if (file_size == 0) {
 		fprintf(stderr, "stdin is empty\n");
 		usage();
-		exit(EXIT_SUCCESS);
+		exit(EXIT_FAILURE);
 	}
 
 	return template;
@@ -622,7 +622,7 @@ int main(int argc, char **argv)
 		switch (opt) {
 		case 'h':
 			usage();
-			break;
+			return EXIT_SUCCESS;
 		case 'f':
 			resize = true;
 			break;
