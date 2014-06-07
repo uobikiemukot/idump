@@ -153,17 +153,6 @@ int str2num(char *str)
 	return estrtol(str, NULL, 10);
 }
 
-int my_ceil(float val, float div)
-{
-	float ret; 
-
-	ret = val / div;
-	if ((int) ret < ret)
-		return (int) (ret + 1);
-	else
-		return (int) ret;
-}
-
 void swap(int *a, int *b)
 {
 	int tmp = *a;
@@ -378,7 +367,7 @@ void fb_init(struct framebuffer *fb)
 		&& (vinfo.bits_per_pixel == 15 || vinfo.bits_per_pixel == 16
 		|| vinfo.bits_per_pixel == 24 || vinfo.bits_per_pixel == 32)) {
 		fb->cmap = fb->cmap_org = NULL;
-		fb->bpp = (int) my_ceil(vinfo.bits_per_pixel, BITS_PER_BYTE);
+		fb->bpp = (int) ceilf((float) vinfo.bits_per_pixel / BITS_PER_BYTE);
 	}
 	else if (finfo.visual == FB_VISUAL_PSEUDOCOLOR
 		&& vinfo.bits_per_pixel == 8) {
