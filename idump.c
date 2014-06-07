@@ -3,9 +3,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
-//#include <stimg.h>
 
-//#include "lodepng.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
@@ -53,7 +51,6 @@ struct framebuffer {
 };
 
 struct image {
-	//STIMG *data;
 	unsigned char *data;
 	int width;
 	int height;
@@ -80,8 +77,6 @@ int my_ceil(float val, float div)
 		return (int) (ret + 1);
 	else
 		return (int) ret;
-
-	//return (val + div - 1) / div;
 }
 
 void swap(int *a, int *b)
@@ -380,23 +375,12 @@ char *make_temp_file(char *template)
 
 void load_image(char *file, struct image *img)
 {
-	/*
-	lodepng_decode32_file(&img->data,
-		(unsigned int *) &img->width, (unsigned int *) &img->height, file);
-
-	if (img->data != NULL) {
-		img->channel = 4;
-		goto load_success;
-	}
-	*/
-
 	if ((img->data = stbi_load(file, &img->width, &img->height,
 		&img->channel, 0)) == NULL) {
 		fprintf(stderr, "image load error: %s\n", file);
 		exit(EXIT_FAILURE);
 	}
 
-//load_success:
 	if (DEBUG)
 		fprintf(stderr, "image width:%d height:%d channel:%d\n",
 			img->width, img->height, img->channel);
@@ -443,10 +427,8 @@ void rotate_image(struct image *img, int angle)
 		for (x2 = 0; x2 < img->width; x2++) {
 			x1 = ((x2 - shift[r][0]) * cos[r] - (y2 - shift[r][1]) * sin[r]) * shift[r][2];
 			y1 = ((x2 - shift[r][0]) * sin[r] + (y2 - shift[r][1]) * cos[r]) * shift[r][2];
-
 			offset_src = img->channel * (y1 * src_width + x1);
 			offset_dst = img->channel * (y2 * img->width + x2);
-
 			memcpy(dst + offset_dst, src + offset_src, img->channel);
 		}
 	}
@@ -457,16 +439,6 @@ void rotate_image(struct image *img, int angle)
 	if (DEBUG)
 		fprintf(stderr, "rotated image: %dx%d size:%d\n",
 			img->width, img->height, img->width * img->height * img->channel);
-
-	/*
-	stimg_rotate(img->data, angle);
-
-	img->width  = stimg_get_width(img->data);
-	img->height = stimg_get_height(img->data);
-	img->alpha  = stimg_get_has_alpha(img->data);
-
-	img->data->next = NULL;
-	*/
 }
 
 void resize_image( struct image *img, int disp_width, int disp_height)
@@ -499,7 +471,6 @@ void resize_image( struct image *img, int disp_width, int disp_height)
 		h_step = MULTIPLER * h / resize_rate;
 		for (w = 0; w < img->width; w++) {
 			w_step = MULTIPLER * w / resize_rate;
-			//printf("h:%d h_step:%d w:%d w_step:%d\n", h, h_step, w, w_step);
 			offset_src = img->channel * (h_step * src_width + w_step);
 			offset_dst = img->channel * (h * img->width + w);
 			memcpy(dst + offset_dst, src + offset_src, img->channel);
@@ -508,49 +479,6 @@ void resize_image( struct image *img, int disp_width, int disp_height)
 
 	free(img->data);
 	img->data = resized_data;
-
-	/* resize height */
-	/*
-	img->height    = resize_rate * img->height;
-	resized_height = (unsigned char *) ecalloc(img->width * img->height * img->channel);
-
-	src = img->data;
-	dst = resized_height;
-
-
-	for (h = 0; h < img->height; h++) {
-		h_step = h / resize_rate;
-		for (w = 0; w < img->width; w++) {
-			offset_src = img->channel * (h_step * img->width + w);
-			offset_dst = img->channel * (h * img->width + w);
-			memcpy(dst + offset_dst, src + offset_src, img->channel);
-		}
-	}
-	free(img->data);
-	img->data = resized_height;
-	*/
-
-	/* resize width */
-	/*
-	src_width     = img->width;
-	img->width    = resize_rate * img->width;
-	resized_width = (unsigned char *) ecalloc(img->width * img->height * img->channel);
-
-	src = img->data;
-	dst = resized_width;
-
-	for (w = 0; w < img->width; w++) {
-		w_step = w / resize_rate;
-		for (h = 0; h < img->height; h++) {
-			offset_src = img->channel * (h * src_width + w_step);
-			offset_dst = img->channel * (h * img->width + w);
-			memcpy(dst + offset_dst, src + offset_src, img->channel);
-		}
-	}
-
-	free(img->data);
-	img->data = resized_width;
-	*/
 
 	if (DEBUG)
 		fprintf(stderr, "resized image: %dx%d size:%d\n",
@@ -565,7 +493,6 @@ void draw_image(struct framebuffer *fb, struct image *img, int x_offset, int y_o
 	uint32_t color;
 	unsigned char *ptr;
 
-	//pixels = stimg_get_data(stimg);
 	ptr = img->data;
 
 	if (img->channel < 3) {
@@ -650,7 +577,6 @@ int main(int argc, char **argv)
 	draw_image(&fb, &img, 0, 0);
 
 	/* release resource */
-	//stimg_delete(img.data);
 	free_image(&img);
 	fb_die(&fb);
 
