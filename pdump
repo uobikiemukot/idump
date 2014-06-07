@@ -1,0 +1,39 @@
+#!/bin/bash
+
+export FRAMEBUFFER=/dev/fb0
+OPT="-f -r 90"
+FILES=($@)
+INDEX=0
+
+echo "file num: ${#FILES[@]}"
+if test ${#FILES[@]} -le "0"; then
+	exit 0
+fi
+
+idump $OPT "${FILES[$INDEX]}" > /dev/null 2>&1
+
+while :; do
+	read -s -n 1 KEY
+
+	tput cr
+	tput el
+
+	case "$KEY" in
+	"w")
+		INDEX=`expr $INDEX + 1`;;
+	"m")
+		INDEX=`expr $INDEX - 1`;;
+	"q")
+		exit 0;;
+	esac
+
+	if test $INDEX -lt "0"; then
+		INDEX=`expr ${#FILES[@]} - 1`
+	elif test $INDEX -ge "${#FILES[@]}"; then
+		INDEX=0
+	fi
+
+	#echo $INDEX
+	echo -n "filename:${FILES[$INDEX]}"
+	idump $OPT "${FILES[$INDEX]}" > /dev/null 2>&1
+done
