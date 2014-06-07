@@ -1,7 +1,7 @@
-SHELL = /bin/bash
-CC = gcc
-CFLAGS = -Wall -Wextra -std=c99 -pedantic \
--march=native -Os -pipe -s
+CC      = gcc
+LDFLAGS = -lm
+CFLAGS  = -Wall -Wextra -std=c99 -pedantic \
+	-march=native -Os -pipe -s
 
 HDR = stb_image.h
 DST = idump
@@ -9,10 +9,7 @@ DST = idump
 all:  $(DST)
 
 idump: idump.c $(HDR)
-	$(CC) $(CFLAGS) $< -o $@
-
-.c.o:
-	$(CC) $(CFLAGS) -DHAVE_CONFIG_H -c $<
+	$(CC) $(CFLAGS) $(LDFLAGS) $< -o $@
 
 clean:
 	rm -f $(DST) *.o
