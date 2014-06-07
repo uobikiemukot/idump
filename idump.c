@@ -1,8 +1,16 @@
-#include "util.h"
+#define _XOPEN_SOURCE 600
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <linux/fb.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/mman.h>
+#include <sys/ioctl.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <unistd.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -57,7 +65,84 @@ struct image {
 	int channel;
 };
 
-struct point_t { int x; int y; };
+/* error functions */
+void error(char *str)
+{
+	perror(str);
+	exit(EXIT_FAILURE);
+}
+
+void fatal(char *str)
+{
+	fprintf(stderr, "%s\n", str);
+	exit(EXIT_FAILURE);
+}
+
+/* wrapper of C functions */
+int eopen(const char *path, int flag)
+{
+	int fd;
+	errno = 0;
+
+	if ((fd = open(path, flag)) < 0) {
+		fprintf(stderr, "cannot open \"%s\"\n", path);
+		error("open");
+	}
+
+	return fd;
+}
+
+void eclose(int fd)
+{
+	errno = 0;
+
+	if (close(fd) < 0)
+		error("close");
+}
+
+void *emmap(void *addr, size_t len, int prot, int flag, int fd, off_t offset)
+{
+	uint32_t *fp;
+	errno = 0;
+
+	if ((fp = (uint32_t *) mmap(addr, len, prot, flag, fd, offset)) == MAP_FAILED)
+		error("mmap");
+
+	return fp;
+}
+
+void emunmap(void *ptr, size_t len)
+{
+	errno = 0;
+
+	if (munmap(ptr, len) < 0)
+		error("munmap");
+}
+
+void *ecalloc(size_t size)
+{
+	void *p;
+	errno = 0;
+
+	if ((p = calloc(1, size)) == NULL)
+		error("calloc");
+
+	return p;
+}
+
+long int estrtol(const char *nptr, char **endptr, int base)
+{
+	long int ret;
+	errno = 0;
+
+	ret = strtol(nptr, endptr, base);
+	if (ret == LONG_MIN || ret == LONG_MAX) {
+		perror("strtol");
+		return 0;
+	}
+
+	return ret;
+}
 
 /* some functions for Linux framebuffer */
 int str2num(char *str)
@@ -322,6 +407,7 @@ void fb_die(struct framebuffer *fb)
 	eclose(fb->fd);
 }
 
+/* idump functions */
 void usage()
 {
 	printf("idump [-h] [-f] [-r angle] image\n"
