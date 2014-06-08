@@ -29,3 +29,8 @@ support following image format
 
 -	ndump: equal "wget -q -O - url | idump"
 -	pdump: take multiple files as arguments
+
+## license
+
+The MIT License (MIT)
+Copyright (c) 2014 haru <uobikiemukot at gmail dot com>
