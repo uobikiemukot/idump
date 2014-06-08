@@ -2,6 +2,15 @@
 
 tiny image viewer for framebuffer
 
+support following image format
+
+-	jpeg by libjpeg
+-	png by libpng
+-	gif by libnsgif
+-	bmp by libnsbmp
+-	tga/psd/hdr/pic by stb_image
+-	and pnm by idump
+
 ## usage
 
  $ idump [-h] [-f] [-r angle] image
