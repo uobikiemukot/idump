@@ -19,10 +19,10 @@ tiny image viewer for framebuffer
 ## supported image format
 
 -	jpeg by libjpeg
--	png  by libpng
--	gif  by libnsgif
--	bmp  by libnsbmp
--	pnm  by idump
+-	png by libpng
+-	gif by libnsgif
+-	bmp by libnsbmp
+-	pnm by idump
 -	tga/psd/hdr/pic by stb_image
 
 ## wrapper scripts
