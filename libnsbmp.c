@@ -15,7 +15,6 @@
 #include <stdint.h>
 
 #include "libnsbmp.h"
-#include "log.h"
 
 /*	The functions provided by this file allow for the decoding of
 	Microsoft's BMP and ICO image file formats.

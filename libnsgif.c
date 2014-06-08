@@ -13,7 +13,6 @@
 #include <stdlib.h>
 #include <assert.h>
 #include "libnsgif.h"
-#include "log.h"
 
 /*	READING GIF FILES
 	=================
