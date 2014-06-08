@@ -1,8 +1,33 @@
+/*
+	The MIT License (MIT)
+
+	Copyright (c) 2014 haru <uobikiemukot at gmail dot com>
+
+	Permission is hereby granted, free of charge, to any person obtaining a copy
+	of this software and associated documentation files (the "Software"), to deal
+	in the Software without restriction, including without limitation the rights
+	to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+	copies of the Software, and to permit persons to whom the Software is
+	furnished to do so, subject to the following conditions:
+
+	The above copyright notice and this permission notice shall be included in
+	all copies or substantial portions of the Software.
+
+	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+	AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+	LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+	OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+	THE SOFTWARE.
+*/
 #define _XOPEN_SOURCE 600
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <linux/fb.h>
+#include <setjmp.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -10,7 +35,18 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
+
+/* for gif/bmp/(ico not supported) */
+#include "libnsgif.h"
+#include "libnsbmp.h"
+
+/* for jpeg */
+#include <jpeglib.h>
+
+/* for png */
+#include <png.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -19,10 +55,12 @@ const char *fb_path = "/dev/fb0";
 char temp_file[] = "/tmp/idump.XXXXXX";
 
 enum {
-	DEBUG            = false,
+	DEBUG            = true,
 	BITS_PER_BYTE    = 8,
 	BUFSIZE          = 1024,
 	MULTIPLER        = 1024,
+	BYTES_PER_PIXEL  = 4,
+	PNG_HEADER_SIZE  = 8,
 	CMAP_COLORS      = 256,
 	CMAP_RED_SHIFT   = 5,
 	CMAP_GREEN_SHIFT = 2,
@@ -63,6 +101,7 @@ struct image {
 	int width;
 	int height;
 	int channel;
+	bool alpha;
 };
 
 /* error functions */
@@ -98,6 +137,27 @@ void eclose(int fd)
 
 	if (close(fd) < 0)
 		error("close");
+}
+
+FILE *efopen(const char *path, char *mode)
+{
+	FILE *fp;
+	errno = 0;
+
+	if ((fp = fopen(path, mode)) == NULL) {
+		fprintf(stderr, "cannot open \"%s\"\n", path);
+		error("fopen");
+	}
+
+	return fp;
+}
+
+void efclose(FILE *fp)
+{
+	errno = 0;
+
+	if (fclose(fp) < 0)
+		error("fclose");
 }
 
 void *emmap(void *addr, size_t len, int prot, int flag, int fd, off_t offset)
@@ -211,7 +271,7 @@ void cmap_init(struct framebuffer *fb, struct fb_var_screeninfo *vinfo)
 
 	for (i = 0; i < CMAP_COLORS; i++) {
 		/*
-		in 8bpp mode, usually red and green have 3bit, blue has 1bit.
+		in 8bpp mode, usually red and green have 3 bit, blue has 2 bit.
 		so we will init cmap table like this.
 
 		  index
@@ -281,23 +341,23 @@ void draw_cmap_table(struct framebuffer *fb)
 	}
 }
 
-void get_rgb(uint8_t *r, uint8_t *g, uint8_t *b, unsigned char **data, int channel)
+inline void get_rgb(uint8_t *r, uint8_t *g, uint8_t *b, unsigned char **data, int channel, bool has_alpha)
 {
-	if (channel == 1 || channel == 2) { /* grayscale or grayscale + alpha */
+	if (channel <= 2) { /* grayscale (+ alpha) */
 		*r = *g = *b = **data;
 		*data += 1;
 	}
-	else { /* channel == 3: r, g, b or channel == 3: r, g, b + alpha */
+	else { /* r, g, b (+ alpha) */
 		*r = **data; *data += 1;
 		*g = **data; *data += 1;
 		*b = **data; *data += 1;
 	}
 
-	if (channel == 2 || channel == 4) /* has alpha */
+	if (has_alpha)
 		*data += 1;
 }
 
-uint32_t get_color(struct fb_var_screeninfo *vinfo, uint8_t r, uint8_t g, uint8_t b)
+inline uint32_t get_color(struct fb_var_screeninfo *vinfo, uint8_t r, uint8_t g, uint8_t b)
 {
 	if (vinfo->bits_per_pixel == 8) {
 		/*
@@ -396,6 +456,381 @@ void fb_die(struct framebuffer *fb)
 	eclose(fb->fd);
 }
 
+/* libns{gif,bmp} functions */
+void *gif_bitmap_create(int width, int height)
+{
+	return calloc(width * height, BYTES_PER_PIXEL);
+}
+
+void gif_bitmap_set_opaque(void *bitmap, bool opaque)
+{
+	(void) opaque;  /* unused */
+	(void) bitmap;
+}
+
+bool gif_bitmap_test_opaque(void *bitmap)
+{
+	(void) bitmap;
+	return false;
+}
+
+unsigned char *gif_bitmap_get_buffer(void *bitmap)
+{
+	return bitmap;
+}
+
+void gif_bitmap_destroy(void *bitmap)
+{
+	free(bitmap);
+}
+
+void gif_bitmap_modified(void *bitmap)
+{
+	(void) bitmap;
+	return;
+}
+
+void *bmp_bitmap_create(int width, int height, unsigned int state)
+{
+	(void) state;  /* unused */
+	return calloc(width * height, BYTES_PER_PIXEL);
+}
+
+unsigned char *bmp_bitmap_get_buffer(void *bitmap)
+{
+	return bitmap;
+}
+
+void bmp_bitmap_destroy(void *bitmap)
+{
+	free(bitmap);
+}
+
+size_t bmp_bitmap_get_bpp(void *bitmap)
+{
+	(void) bitmap;  /* unused */
+	return BYTES_PER_PIXEL;
+}
+
+unsigned char *file_into_memory(const char *path, size_t *data_size)
+{
+	FILE *fd;
+	struct stat sb;
+	unsigned char *buffer;
+	size_t size;
+	size_t n;
+
+	fd = fopen(path, "rb");
+	if (!fd) {
+		perror(path);
+		exit(EXIT_FAILURE);
+	}
+
+	if (stat(path, &sb)) {
+		perror(path);
+		exit(EXIT_FAILURE);
+	}
+	size = sb.st_size;
+
+	buffer = ecalloc(size);
+	n = fread(buffer, 1, size, fd);
+	if (n != size) {
+		perror(path);
+		exit(EXIT_FAILURE);
+	}
+
+	fclose(fd);
+	*data_size = size;
+
+	return buffer;
+}
+
+bool load_gif(const char *file, struct image *img)
+{
+	gif_bitmap_callback_vt gif_callbacks = {
+		gif_bitmap_create,
+		gif_bitmap_destroy,
+		gif_bitmap_get_buffer,
+		gif_bitmap_set_opaque,
+		gif_bitmap_test_opaque,
+		gif_bitmap_modified
+	};
+	size_t size;
+	gif_result code;
+	unsigned char *mem;
+	gif_animation gif;
+
+	gif_create(&gif, &gif_callbacks);
+	mem = file_into_memory(file, &size);
+
+	code = gif_initialise(&gif, size, mem);
+	free(mem);
+	if (code != GIF_OK && code != GIF_WORKING) {
+		gif_finalise(&gif);
+		return false;
+	}
+
+	code = gif_decode_frame(&gif, 0); /* read only first frame */
+	if (code != GIF_OK) {
+		gif_finalise(&gif);
+		return false;
+	}
+
+	img->width   = gif.width;
+	img->height  = gif.height;
+	img->channel = BYTES_PER_PIXEL;
+
+	size      = img->width * img->height * img->channel;
+	img->data = (unsigned char *) ecalloc(size);
+	memcpy(img->data, gif.frame_image, size);
+
+	gif_finalise(&gif);
+
+	return true;
+}
+
+bool load_bmp(const char *file, struct image *img)
+{
+	bmp_bitmap_callback_vt bmp_callbacks = {
+		bmp_bitmap_create,
+		bmp_bitmap_destroy,
+		bmp_bitmap_get_buffer,
+		bmp_bitmap_get_bpp
+	};
+	bmp_result code;
+	size_t size;
+	unsigned char *mem;
+	bmp_image bmp;
+
+	bmp_create(&bmp, &bmp_callbacks);
+	mem = file_into_memory(file, &size);
+
+	code = bmp_analyse(&bmp, size, mem);
+	free(mem);
+	if (code != BMP_OK) {
+		bmp_finalise(&bmp);
+		return false;
+	}
+
+	code = bmp_decode(&bmp);
+	if (code != BMP_OK) {
+		bmp_finalise(&bmp);
+		return false;
+	}
+
+	img->width   = bmp.width;
+	img->height  = bmp.height;
+	img->channel = BYTES_PER_PIXEL;
+
+	size      = img->width * img->height * img->channel;
+	img->data = (unsigned char *) ecalloc(size);
+	memcpy(img->data, bmp.bitmap, size);
+
+	bmp_finalise(&bmp);
+
+	return true;
+}
+
+/* libjpeg functions */
+struct my_error_mgr {
+	struct jpeg_error_mgr pub;
+	jmp_buf setjmp_buffer;
+};
+
+void my_error_exit(j_common_ptr cinfo)
+{
+	struct my_error_mgr *myerr = (struct my_error_mgr *) cinfo->err;
+	(*cinfo->err->output_message) (cinfo);
+	longjmp(myerr->setjmp_buffer, 1);
+}
+
+bool load_jpeg(const char *file, struct image *img)
+{
+	int row_stride, size;
+	FILE *fp;
+	JSAMPARRAY buffer;
+	struct jpeg_decompress_struct cinfo;
+	struct my_error_mgr jerr;
+
+	fp = efopen(file, "r");
+	cinfo.err = jpeg_std_error(&jerr.pub);
+	jerr.pub.error_exit = my_error_exit;
+
+	if (setjmp(jerr.setjmp_buffer)) {
+		jpeg_destroy_decompress(&cinfo);
+		efclose(fp);
+		return false;
+	}
+
+	jpeg_create_decompress(&cinfo);
+	jpeg_stdio_src(&cinfo, fp);
+	jpeg_read_header(&cinfo, TRUE);
+
+	cinfo.quantize_colors = FALSE;
+	jpeg_start_decompress(&cinfo);
+
+	img->width   = cinfo.output_width;
+	img->height  = cinfo.output_height;
+	img->channel = cinfo.output_components;
+
+	size = img->width * img->height * img->channel;
+	img->data = (unsigned char *) ecalloc(size);
+
+	row_stride = cinfo.output_width * cinfo.output_components;
+	buffer = (*cinfo.mem->alloc_sarray)((j_common_ptr) &cinfo, JPOOL_IMAGE, row_stride, 1);
+
+	while (cinfo.output_scanline < cinfo.output_height) {
+		jpeg_read_scanlines(&cinfo, buffer, 1);
+		memcpy(img->data + (cinfo.output_scanline - 1) * row_stride, buffer[0], row_stride);
+	}
+
+	jpeg_finish_decompress(&cinfo);
+	jpeg_destroy_decompress(&cinfo);
+	efclose(fp);
+
+	return true;
+}
+
+/* libpng function */
+bool load_png(const char *file, struct image *img)
+{
+	FILE *fp;
+	int i, row_stride, size;
+	png_bytep *row_pointers = NULL;
+	unsigned char header[PNG_HEADER_SIZE];
+	png_structp png_ptr;
+	png_infop info_ptr;
+
+	fp = efopen(file, "r");
+	fread(header, 1, PNG_HEADER_SIZE, fp);
+
+	if (png_sig_cmp(header, 0, PNG_HEADER_SIZE))
+		return false;
+
+	if ((png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL)) == NULL)
+		return false;
+
+	if ((info_ptr = png_create_info_struct(png_ptr)) == NULL) {
+		png_destroy_read_struct(&png_ptr, (png_infopp) NULL, (png_infopp) NULL);
+		return false;
+	}
+
+	if (setjmp(png_jmpbuf(png_ptr))) {
+		png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+		fclose(fp);
+		return false;
+	}
+
+	png_init_io(png_ptr, fp);
+	png_set_sig_bytes(png_ptr, PNG_HEADER_SIZE);
+	png_read_png(png_ptr, info_ptr,
+		PNG_TRANSFORM_STRIP_ALPHA | PNG_TRANSFORM_EXPAND | PNG_TRANSFORM_STRIP_16, NULL);
+
+	img->width   = png_get_image_width(png_ptr, info_ptr);
+	img->height  = png_get_image_height(png_ptr, info_ptr);
+	img->channel = png_get_channels(png_ptr, info_ptr);
+
+	size = img->width * img->height * img->channel;
+	img->data = (unsigned char *) ecalloc(size);
+
+	row_stride   = png_get_rowbytes(png_ptr, info_ptr);
+	row_pointers = png_get_rows(png_ptr, info_ptr);
+
+	for (i = 0; i < img->height; i++)
+		memcpy(img->data + row_stride * i, row_pointers[i], row_stride);
+
+	png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+	fclose(fp);
+
+	return true;
+}
+
+/* pnm functions */
+inline int getint(FILE *fp)
+{
+	int c, n = 0;
+
+	do {
+		c = fgetc(fp);
+	} while (isspace(c));
+
+	while (isdigit(c)) {
+		n = n * 10 + c - '0';
+		c = fgetc(fp);
+	}
+	return n;
+}
+
+inline uint8_t pnm_normalize(int c, int type, int max_value)
+{
+	if (type == 1 || type == 4)
+		return (c == 0) ? 0: 0xFF;
+	else
+		return 0xFF * c / max_value;
+}
+
+bool load_pnm(const char *file, struct image *img)
+{
+	int size, type, c, count, max_value = 0;
+	FILE *fp;
+
+	fp = efopen(file, "r");
+	if (fgetc(fp) != 'P')
+		return false;
+
+	type = fgetc(fp) - '0';
+	img->channel = (type == 1 || type == 2 || type == 4 || type == 5) ? 1:
+		(type == 3 || type == 6) ? 3: -1;
+
+	if (img->channel == -1)
+		return false;
+
+	/* read header */
+	while ((c = fgetc(fp)) != EOF) {
+		if (c == '#')
+			while ((c = fgetc(fp)) != '\n');
+		
+		if (isspace(c))
+			continue;
+
+		if (isdigit(c)) {
+			ungetc(c, fp);
+			img->width  = getint(fp);
+			img->height = getint(fp);
+			if (type != 1 && type != 4)
+				max_value = getint(fp);
+			break;
+		}
+	}
+
+	size = img->width * img->height * img->channel;
+	img->data = ecalloc(size);
+
+	/* read data */
+	count = 0;
+	if (1 <= type && type <= 3) {
+		while ((c = fgetc(fp)) != EOF) {
+			if (c == '#')
+				while ((c = fgetc(fp)) != '\n');
+			
+			if (isspace(c))
+				continue;
+
+			if (isdigit(c)) {
+				ungetc(c, fp);
+				*(img->data + count++) = pnm_normalize(getint(fp), type, max_value);
+			}
+		}
+	}
+	else {
+		while ((c = fgetc(fp)) != EOF)
+			*(img->data + count++) = pnm_normalize(c, type, max_value);
+	}
+
+	efclose(fp);
+	return true;
+}
+
 /* idump functions */
 void usage()
 {
@@ -448,14 +883,32 @@ char *make_temp_file(char *template)
 	return template;
 }
 
-void load_image(char *file, struct image *img)
+void load_image(const char *file, struct image *img)
 {
+	if ((strstr(file, "jpeg") || strstr(file, "jpg")) && load_jpeg(file, img))
+		goto load_success;
+
+	if (strstr(file, "png") && load_png(file, img))
+		goto load_success;
+
+	if (strstr(file, "bmp") && load_bmp(file, img))
+		goto load_success;
+
+	if (strstr(file, "gif") && load_gif(file, img))
+		goto load_success;
+
+	if ((strstr(file, "pnm") || strstr(file, "ppm") || strstr(file, "pgm") || strstr(file, "pbm"))
+		&& load_pnm(file, img))
+		goto load_success;
+
 	if ((img->data = stbi_load(file, &img->width, &img->height,
 		&img->channel, 0)) == NULL) {
 		fprintf(stderr, "image load error: %s\n", file);
 		exit(EXIT_FAILURE);
 	}
 
+load_success:
+	img->alpha = (img->channel == 2 || img->channel == 4) ? true: false;
 	if (DEBUG)
 		fprintf(stderr, "image width:%d height:%d channel:%d\n",
 			img->width, img->height, img->channel);
@@ -463,7 +916,7 @@ void load_image(char *file, struct image *img)
 
 void free_image(struct image *img)
 {
-	stbi_image_free(img->data);
+	free(img->data);
 }
 
 void rotate_image(struct image *img, int angle)
@@ -516,12 +969,47 @@ void rotate_image(struct image *img, int angle)
 			img->width, img->height, img->width * img->height * img->channel);
 }
 
-void resize_image( struct image *img, int disp_width, int disp_height)
+inline void get_average(struct image *img, int w_from, int w_to, int h_from, int h_to,
+	int stride, unsigned char *pixel)
+{
+	int h, w, cells;
+	unsigned char *ptr;
+	uint8_t r, g, b;
+	uint16_t rsum, gsum, bsum;
+
+	rsum = gsum = bsum = 0;
+	for (h = h_from; h < h_to; h++) {
+		for (w = w_from; w < w_to; w++) {
+			ptr = img->data + img->channel * (h * stride + w);
+			get_rgb(&r, &g, &b, &ptr, img->channel, img->alpha);
+			rsum += r;
+			gsum += g;
+			bsum += b;
+		}
+	}
+	cells = (h_to - h_from) * (w_to - w_from);
+	rsum /= cells;
+	gsum /= cells;
+	bsum /= cells;
+
+	if (img->channel <= 2)
+		*pixel++ = rsum;
+	else {
+		*pixel++ = rsum;
+		*pixel++ = gsum;
+		*pixel++ = bsum;
+	}
+
+	if (img->alpha)
+		*pixel = 0;
+}
+
+void resize_image(struct image *img, int disp_width, int disp_height)
 {
 	int width_rate, height_rate, resize_rate;
-	int w, h, src_width, h_step, w_step;
-	unsigned char *src, *dst, *resized_data; //*resized_width, *resized_height;
-	long offset_dst, offset_src;
+	int w, h, src_width, h_from, w_from, h_to, w_to;
+	unsigned char *dst, *resized_data, pixel[img->channel];
+	long offset_dst;
 
 	width_rate  = MULTIPLER * disp_width  / img->width;
 	height_rate = MULTIPLER * disp_height / img->height;
@@ -535,34 +1023,37 @@ void resize_image( struct image *img, int disp_width, int disp_height)
 		return;
 
 	src_width    = img->width;
-	img->width   = resize_rate * img->width / MULTIPLER;
+	/* FIXME: let the same num (img->width == fb->width), if it causes SEGV, remove "+ 1" */
+	img->width   = resize_rate * img->width / MULTIPLER + 1;
 	img->height  = resize_rate * img->height / MULTIPLER;
 	resized_data = (unsigned char *) ecalloc(img->width * img->height * img->channel);
-
-	src = img->data;
-	dst = resized_data;
-
-	for (h = 0; h < img->height; h++) {
-		h_step = MULTIPLER * h / resize_rate;
-		for (w = 0; w < img->width; w++) {
-			w_step = MULTIPLER * w / resize_rate;
-			offset_src = img->channel * (h_step * src_width + w_step);
-			offset_dst = img->channel * (h * img->width + w);
-			memcpy(dst + offset_dst, src + offset_src, img->channel);
-		}
-	}
-
-	free(img->data);
-	img->data = resized_data;
 
 	if (DEBUG)
 		fprintf(stderr, "resized image: %dx%d size:%d\n",
 			img->width, img->height, img->width * img->height * img->channel);
+
+	dst = resized_data;
+
+	for (h = 0; h < img->height; h++) {
+		h_from = MULTIPLER * h / resize_rate;
+		h_to   = MULTIPLER * (h + 1) / resize_rate;
+		for (w = 0; w < img->width; w++) {
+			w_from = MULTIPLER * w / resize_rate;
+			w_to   = MULTIPLER * (w + 1) / resize_rate;
+
+			get_average(img, w_from, w_to, h_from, h_to, src_width, pixel);
+			offset_dst = img->channel * (h * img->width + w);
+			memcpy(dst + offset_dst, pixel, img->channel);
+		}
+	}
+	free(img->data);
+	img->data = resized_data;
 }
 
-void draw_image(struct framebuffer *fb, struct image *img, int x_offset, int y_offset)
+void draw_image(struct framebuffer *fb, struct image *img)
 {
 	/* TODO: check [xy]_offset (alyway zero now) */
+	/* 14/06/08: offset removed */
 	int w, h, offset, size;
 	uint8_t r, g, b;
 	uint32_t color;
@@ -570,34 +1061,28 @@ void draw_image(struct framebuffer *fb, struct image *img, int x_offset, int y_o
 
 	ptr = img->data;
 
-	if (img->channel < 3) {
-		fprintf(stderr, "grayscale image not suppurted\n");
-		return;
-	}
-
 	for (h = 0; h < img->height; h++) {
 		for (w = 0; w < img->width; w++) {
-			get_rgb(&r, &g, &b, &ptr, img->channel);
+			get_rgb(&r, &g, &b, &ptr, img->channel, img->alpha);
 			color = get_color(&fb->vinfo, r, g, b);
 
-			if (w >= fb->width || h >= fb->height)
-				continue;
-
 			/* update copy buffer */
-			offset = (w + x_offset) * fb->bpp + (h + y_offset) * fb->line_length;
-			memcpy(fb->buf + offset, &color, fb->bpp);
+			if (w < fb->width && h < fb->height) {
+				offset = w * fb->bpp + h * fb->line_length;
+				memcpy(fb->buf + offset, &color, fb->bpp);
+			}
 		}
 		/* draw each scanline */
-		if (img->width < fb->width) {
-			offset = x_offset * fb->bpp + (h + y_offset) * fb->line_length;
+		if (h < fb->height && img->width < fb->width) {
+			offset = h * fb->line_length;
 			size = img->width * fb->bpp;
 			memcpy(fb->fp + offset, fb->buf + offset, size);
 		}
 	}
 	/* we can draw all image data at once! */
 	if (img->width >= fb->width) {
-		offset = x_offset * fb->bpp + y_offset * fb->line_length;
-		size = (img->height >= fb->height) ? fb->height: img->height;
+		offset = 0;
+		size = (img->height > fb->height) ? fb->height: img->height;
 		size *= fb->line_length; 
 		memcpy(fb->fp + offset, fb->buf + offset, size);
 	}
@@ -649,7 +1134,7 @@ int main(int argc, char **argv)
 	if (resize)
 		resize_image(&img, fb.width, fb.height);
 
-	draw_image(&fb, &img, 0, 0);
+	draw_image(&fb, &img);
 
 	/* release resource */
 	free_image(&img);
