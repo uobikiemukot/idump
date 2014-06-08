@@ -38,14 +38,14 @@
 #include <unistd.h>
 
 /* for gif/bmp/(ico not supported) */
-#include "libnsgif.h"
-#include "libnsbmp.h"
+#include "lib/libnsgif.h"
+#include "lib/libnsbmp.h"
 
 /* for png */
-#include "lodepng.h"
+#include "lib/lodepng.h"
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "lib/stb_image.h"
 
 const char *fb_path = "/dev/fb0";
 char temp_file[] = "/tmp/idump.XXXXXX";
@@ -97,6 +97,7 @@ struct image {
 	int width;
 	int height;
 	int channel;
+	bool alpha;
 };
 
 /* error functions */
@@ -336,19 +337,19 @@ void draw_cmap_table(struct framebuffer *fb)
 	}
 }
 
-inline void get_rgb(uint8_t *r, uint8_t *g, uint8_t *b, unsigned char **data, int channel)
+inline void get_rgb(uint8_t *r, uint8_t *g, uint8_t *b, unsigned char **data, int channel, bool has_alpha)
 {
-	if (channel == 1 || channel == 2) { /* grayscale or grayscale + alpha */
+	if (channel <= 2) { /* grayscale (+ alpha) */
 		*r = *g = *b = **data;
 		*data += 1;
 	}
-	else { /* channel == 3: r, g, b or channel == 3: r, g, b + alpha */
+	else { /* r, g, b (+ alpha) */
 		*r = **data; *data += 1;
 		*g = **data; *data += 1;
 		*b = **data; *data += 1;
 	}
 
-	if (channel == 2 || channel == 4) /* has alpha */
+	if (has_alpha)
 		*data += 1;
 }
 
@@ -679,7 +680,7 @@ bool load_pnm(const char *file, struct image *img)
 			img->width  = getint(fp);
 			img->height = getint(fp);
 			if (type != 1 && type != 4)
-				max_value   = getint(fp);
+				max_value = getint(fp);
 			break;
 		}
 	}
@@ -790,6 +791,7 @@ void load_image(const char *file, struct image *img)
 	}
 
 load_success:
+	img->alpha = (img->channel == 2 || img->channel == 4) ? true: false;
 	if (DEBUG)
 		fprintf(stderr, "image width:%d height:%d channel:%d\n",
 			img->width, img->height, img->channel);
@@ -850,8 +852,8 @@ void rotate_image(struct image *img, int angle)
 			img->width, img->height, img->width * img->height * img->channel);
 }
 
-inline void get_average(int w_from, int w_to, int h_from, int h_to,
-	int stride, int channel, unsigned char *src, unsigned char *pixel)
+inline void get_average(struct image *img, int w_from, int w_to, int h_from, int h_to,
+	int stride, unsigned char *pixel)
 {
 	int h, w, cells;
 	unsigned char *ptr;
@@ -861,8 +863,8 @@ inline void get_average(int w_from, int w_to, int h_from, int h_to,
 	rsum = gsum = bsum = 0;
 	for (h = h_from; h < h_to; h++) {
 		for (w = w_from; w < w_to; w++) {
-			ptr = src + channel * (h * stride + w);
-			get_rgb(&r, &g, &b, &ptr, channel);
+			ptr = img->data + img->channel * (h * stride + w);
+			get_rgb(&r, &g, &b, &ptr, img->channel, img->alpha);
 			rsum += r;
 			gsum += g;
 			bsum += b;
@@ -873,15 +875,15 @@ inline void get_average(int w_from, int w_to, int h_from, int h_to,
 	gsum /= cells;
 	bsum /= cells;
 
-	if (channel == 1 || channel == 2)
+	if (img->channel <= 2)
 		*pixel++ = rsum;
-	else if (channel == 3 || channel == 4) {
+	else {
 		*pixel++ = rsum;
 		*pixel++ = gsum;
 		*pixel++ = bsum;
 	}
 
-	if (channel == 2 || channel == 4)
+	if (img->alpha)
 		*pixel = 0;
 }
 
@@ -889,7 +891,7 @@ void resize_image(struct image *img, int disp_width, int disp_height)
 {
 	int width_rate, height_rate, resize_rate;
 	int w, h, src_width, h_from, w_from, h_to, w_to;
-	unsigned char *src, *dst, *resized_data, pixel[img->channel];
+	unsigned char *dst, *resized_data, pixel[img->channel];
 	long offset_dst;
 
 	width_rate  = MULTIPLER * disp_width  / img->width;
@@ -913,7 +915,6 @@ void resize_image(struct image *img, int disp_width, int disp_height)
 		fprintf(stderr, "resized image: %dx%d size:%d\n",
 			img->width, img->height, img->width * img->height * img->channel);
 
-	src = img->data;
 	dst = resized_data;
 
 	for (h = 0; h < img->height; h++) {
@@ -923,8 +924,7 @@ void resize_image(struct image *img, int disp_width, int disp_height)
 			w_from = MULTIPLER * w / resize_rate;
 			w_to   = MULTIPLER * (w + 1) / resize_rate;
 
-			get_average(w_from, w_to, h_from, h_to,
-				src_width, img->channel, src, pixel);
+			get_average(img, w_from, w_to, h_from, h_to, src_width, pixel);
 			offset_dst = img->channel * (h * img->width + w);
 			memcpy(dst + offset_dst, pixel, img->channel);
 		}
@@ -946,7 +946,7 @@ void draw_image(struct framebuffer *fb, struct image *img)
 
 	for (h = 0; h < img->height; h++) {
 		for (w = 0; w < img->width; w++) {
-			get_rgb(&r, &g, &b, &ptr, img->channel);
+			get_rgb(&r, &g, &b, &ptr, img->channel, img->alpha);
 			color = get_color(&fb->vinfo, r, g, b);
 
 			/* update copy buffer */

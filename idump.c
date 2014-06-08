@@ -39,8 +39,8 @@
 #include <unistd.h>
 
 /* for gif/bmp/(ico not supported) */
-#include "libnsgif.h"
-#include "libnsbmp.h"
+#include "lib/libnsgif.h"
+#include "lib/libnsbmp.h"
 
 /* for jpeg */
 #include <jpeglib.h>
@@ -49,7 +49,7 @@
 #include <png.h>
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "lib/stb_image.h"
 
 const char *fb_path = "/dev/fb0";
 char temp_file[] = "/tmp/idump.XXXXXX";
