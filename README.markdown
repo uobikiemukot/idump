@@ -2,15 +2,6 @@
 
 tiny image viewer for framebuffer
 
-support following image format
-
--	jpeg by libjpeg
--	png by libpng
--	gif by libnsgif
--	bmp by libnsbmp
--	tga/psd/hdr/pic by stb_image
--	and pnm by idump
-
 ## usage
 
  $ idump [-h] [-f] [-r angle] image
@@ -25,6 +16,15 @@ support following image format
 -	-f: fit image to display size
 -	-r: rotate image (90 or 180 or 270)
 
+## supported image format
+
+-	jpeg by libjpeg
+-	png  by libpng
+-	gif  by libnsgif
+-	bmp  by libnsbmp
+-	pnm  by idump
+-	tga/psd/hdr/pic by stb_image
+
 ## wrapper scripts
 
 -	ndump: equal "wget -q -O - url | idump"
@@ -33,4 +33,5 @@ support following image format
 ## license
 
 The MIT License (MIT)
+
 Copyright (c) 2014 haru <uobikiemukot at gmail dot com>
