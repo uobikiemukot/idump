@@ -13,7 +13,7 @@ tiny image viewer for framebuffer
 ## options
 
 -	-h: show help
--	-f: fit image to display size
+-	-f: fit image to display size (reduce only)
 -	-r: rotate image (90 or 180 or 270)
 
 ## supported image format
