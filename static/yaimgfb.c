@@ -42,13 +42,11 @@
 #include "../lib/libnsgif.h"
 #include "../lib/libnsbmp.h"
 
-/* for jpeg */
-#include <jpeglib.h>
-
 /* for png */
-#include <png.h>
+#include "../lib/lodepng.h"
 
 #define STB_IMAGE_IMPLEMENTATION
+#define STBI_NO_HDR
 #include "../lib/stb_image.h"
 
 const char *fb_path = "/dev/fb0";
@@ -230,11 +228,16 @@ int str2num(char *str)
 	return estrtol(str, NULL, 10);
 }
 
-void swap(int *a, int *b)
+void swapint(int *a, int *b)
 {
 	int tmp = *a;
 	*a  = *b;
 	*b  = tmp;
+}
+
+inline int my_ceil(int val, int div)
+{
+	return (val + div - 1) / div;
 }
 
 uint32_t bit_reverse(uint32_t val, int bits)
@@ -444,7 +447,7 @@ void fb_init(struct framebuffer *fb)
 		&& (vinfo.bits_per_pixel == 15 || vinfo.bits_per_pixel == 16
 		|| vinfo.bits_per_pixel == 24 || vinfo.bits_per_pixel == 32)) {
 		fb->cmap = fb->cmap_org = NULL;
-		fb->bpp = (int) ceilf((float) vinfo.bits_per_pixel / BITS_PER_BYTE);
+		fb->bpp = my_ceil(vinfo.bits_per_pixel, BITS_PER_BYTE);
 	}
 	else if (finfo.visual == FB_VISUAL_PSEUDOCOLOR
 		&& vinfo.bits_per_pixel == 8) {
@@ -650,120 +653,6 @@ bool load_bmp(const char *file, struct image *img)
 	return true;
 }
 
-/* libjpeg functions */
-struct my_error_mgr {
-	struct jpeg_error_mgr pub;
-	jmp_buf setjmp_buffer;
-};
-
-void my_error_exit(j_common_ptr cinfo)
-{
-	struct my_error_mgr *myerr = (struct my_error_mgr *) cinfo->err;
-	(*cinfo->err->output_message) (cinfo);
-	longjmp(myerr->setjmp_buffer, 1);
-}
-
-bool load_jpeg(const char *file, struct image *img)
-{
-	int row_stride, size;
-	FILE *fp;
-	JSAMPARRAY buffer;
-	struct jpeg_decompress_struct cinfo;
-	struct my_error_mgr jerr;
-
-	fp = efopen(file, "r");
-	cinfo.err = jpeg_std_error(&jerr.pub);
-	jerr.pub.error_exit = my_error_exit;
-
-	if (setjmp(jerr.setjmp_buffer)) {
-		jpeg_destroy_decompress(&cinfo);
-		efclose(fp);
-		return false;
-	}
-
-	jpeg_create_decompress(&cinfo);
-	jpeg_stdio_src(&cinfo, fp);
-	jpeg_read_header(&cinfo, TRUE);
-
-	cinfo.quantize_colors = FALSE;
-	jpeg_start_decompress(&cinfo);
-
-	img->width   = cinfo.output_width;
-	img->height  = cinfo.output_height;
-	img->channel = cinfo.output_components;
-
-	size = img->width * img->height * img->channel;
-	img->data = (unsigned char *) ecalloc(size);
-
-	row_stride = cinfo.output_width * cinfo.output_components;
-	buffer = (*cinfo.mem->alloc_sarray)((j_common_ptr) &cinfo, JPOOL_IMAGE, row_stride, 1);
-
-	while (cinfo.output_scanline < cinfo.output_height) {
-		jpeg_read_scanlines(&cinfo, buffer, 1);
-		memcpy(img->data + (cinfo.output_scanline - 1) * row_stride, buffer[0], row_stride);
-	}
-
-	jpeg_finish_decompress(&cinfo);
-	jpeg_destroy_decompress(&cinfo);
-	efclose(fp);
-
-	return true;
-}
-
-/* libpng function */
-bool load_png(const char *file, struct image *img)
-{
-	FILE *fp;
-	int i, row_stride, size;
-	png_bytep *row_pointers = NULL;
-	unsigned char header[PNG_HEADER_SIZE];
-	png_structp png_ptr;
-	png_infop info_ptr;
-
-	fp = efopen(file, "r");
-	fread(header, 1, PNG_HEADER_SIZE, fp);
-
-	if (png_sig_cmp(header, 0, PNG_HEADER_SIZE))
-		return false;
-
-	if ((png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL)) == NULL)
-		return false;
-
-	if ((info_ptr = png_create_info_struct(png_ptr)) == NULL) {
-		png_destroy_read_struct(&png_ptr, (png_infopp) NULL, (png_infopp) NULL);
-		return false;
-	}
-
-	if (setjmp(png_jmpbuf(png_ptr))) {
-		png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
-		fclose(fp);
-		return false;
-	}
-
-	png_init_io(png_ptr, fp);
-	png_set_sig_bytes(png_ptr, PNG_HEADER_SIZE);
-	png_read_png(png_ptr, info_ptr,
-		PNG_TRANSFORM_STRIP_ALPHA | PNG_TRANSFORM_EXPAND | PNG_TRANSFORM_STRIP_16, NULL);
-
-	img->width   = png_get_image_width(png_ptr, info_ptr);
-	img->height  = png_get_image_height(png_ptr, info_ptr);
-	img->channel = png_get_channels(png_ptr, info_ptr);
-
-	size = img->width * img->height * img->channel;
-	img->data = (unsigned char *) ecalloc(size);
-
-	row_stride   = png_get_rowbytes(png_ptr, info_ptr);
-	row_pointers = png_get_rows(png_ptr, info_ptr);
-
-	for (i = 0; i < img->height; i++)
-		memcpy(img->data + row_stride * i, row_pointers[i], row_stride);
-
-	png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
-	fclose(fp);
-
-	return true;
-}
-
 /* pnm functions */
 inline int getint(FILE *fp)
 {
@@ -923,11 +812,12 @@ void load_image(const char *file, struct image *img)
 {
 	free_image(img);
 
-	if ((strstr(file, "jpeg") || strstr(file, "jpg")) && load_jpeg(file, img))
+	if (strstr(file, "png") &&
+		lodepng_decode24_file(&img->data,
+		(unsigned *) &img->width, (unsigned *) &img->height, file) == 0) {
+		img->channel = 3;
 		goto load_success;
-
-	if (strstr(file, "png") && load_png(file, img))
-		goto load_success;
+	}
 
 	if (strstr(file, "bmp") && load_bmp(file, img))
 		goto load_success;

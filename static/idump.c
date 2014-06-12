@@ -38,14 +38,15 @@
 #include <unistd.h>
 
 /* for gif/bmp/(ico not supported) */
-#include "lib/libnsgif.h"
-#include "lib/libnsbmp.h"
+#include "../lib/libnsgif.h"
+#include "../lib/libnsbmp.h"
 
 /* for png */
-#include "lib/lodepng.h"
+#include "../lib/lodepng.h"
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "lib/stb_image.h"
+#define STBI_NO_HDR
+#include "../lib/stb_image.h"
 
 const char *fb_path = "/dev/fb0";
 char temp_file[] = "/tmp/idump.XXXXXX";
@@ -209,11 +210,16 @@ int str2num(char *str)
 	return estrtol(str, NULL, 10);
 }
 
-void swap(int *a, int *b)
+inline void swapint(int *a, int *b)
 {
 	int tmp = *a;
 	*a  = *b;
 	*b  = tmp;
+}
+
+inline int my_ceil(int val, int div)
+{
+	return (val + div - 1) / div;
 }
 
 uint32_t bit_reverse(uint32_t val, int bits)
@@ -423,7 +429,7 @@ void fb_init(struct framebuffer *fb)
 		&& (vinfo.bits_per_pixel == 15 || vinfo.bits_per_pixel == 16
 		|| vinfo.bits_per_pixel == 24 || vinfo.bits_per_pixel == 32)) {
 		fb->cmap = fb->cmap_org = NULL;
-		fb->bpp = (int) ceilf((float) vinfo.bits_per_pixel / BITS_PER_BYTE);
+		fb->bpp = my_ceil(vinfo.bits_per_pixel, BITS_PER_BYTE);
 	}
 	else if (finfo.visual == FB_VISUAL_PSEUDOCOLOR
 		&& vinfo.bits_per_pixel == 8) {
@@ -827,7 +833,7 @@ void rotate_image(struct image *img, int angle)
 	
 	src_width = img->width;
 	if (angle == 90 || angle == 270)
-		swap(&img->width, &img->height);
+		swapint(&img->width, &img->height);
 
 	rotate_data = (unsigned char *) ecalloc(img->width * img->height * img->channel);
 
