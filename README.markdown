@@ -23,7 +23,6 @@ tiny image viewer for framebuffer
 -	gif by libnsgif
 -	bmp by libnsbmp
 -	pnm by idump
--	tga/psd/hdr/pic by stb_image
 
 ## wrapper scripts
 
