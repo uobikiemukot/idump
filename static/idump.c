@@ -719,6 +719,43 @@ bool load_pnm(const char *file, struct image *img)
 	return true;
 }
 
+void load_image(const char *file, struct image *img)
+{
+	if (strstr(file, "png") &&
+		lodepng_decode24_file(&img->data,
+			(unsigned *) &img->width, (unsigned *) &img->height, file) == 0) {
+		img->channel = 3;
+		goto load_success;
+	}
+
+	if (strstr(file, "bmp") && load_bmp(file, img))
+		goto load_success;
+
+	if (strstr(file, "gif") && load_gif(file, img))
+		goto load_success;
+
+	if ((strstr(file, "pnm") || strstr(file, "ppm") || strstr(file, "pgm") || strstr(file, "pbm"))
+		&& load_pnm(file, img))
+		goto load_success;
+
+	if ((img->data = stbi_load(file, &img->width, &img->height,
+		&img->channel, 0)) == NULL) {
+		fprintf(stderr, "image load error: %s\n", file);
+		exit(EXIT_FAILURE);
+	}
+
+load_success:
+	img->alpha = (img->channel == 2 || img->channel == 4) ? true: false;
+	if (DEBUG)
+		fprintf(stderr, "image width:%d height:%d channel:%d\n",
+			img->width, img->height, img->channel);
+}
+
+void free_image(struct image *img)
+{
+	free(img->data);
+}
+
 /* idump functions */
 void usage()
 {
@@ -769,43 +806,6 @@ char *make_temp_file(char *template)
 	}
 
 	return template;
-}
-
-void load_image(const char *file, struct image *img)
-{
-	if (strstr(file, "png") &&
-		lodepng_decode24_file(&img->data,
-			(unsigned *) &img->width, (unsigned *) &img->height, file) == 0) {
-		img->channel = 3;
-		goto load_success;
-	}
-
-	if (strstr(file, "bmp") && load_bmp(file, img))
-		goto load_success;
-
-	if (strstr(file, "gif") && load_gif(file, img))
-		goto load_success;
-
-	if ((strstr(file, "pnm") || strstr(file, "ppm") || strstr(file, "pgm") || strstr(file, "pbm"))
-		&& load_pnm(file, img))
-		goto load_success;
-
-	if ((img->data = stbi_load(file, &img->width, &img->height,
-		&img->channel, 0)) == NULL) {
-		fprintf(stderr, "image load error: %s\n", file);
-		exit(EXIT_FAILURE);
-	}
-
-load_success:
-	img->alpha = (img->channel == 2 || img->channel == 4) ? true: false;
-	if (DEBUG)
-		fprintf(stderr, "image width:%d height:%d channel:%d\n",
-			img->width, img->height, img->channel);
-}
-
-void free_image(struct image *img)
-{
-	free(img->data);
 }
 
 void rotate_image(struct image *img, int angle)

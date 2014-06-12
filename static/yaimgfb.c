@@ -56,9 +56,9 @@ enum {
 	BITS_PER_BYTE    = 8,
 	BUFSIZE          = 1024,
 	MULTIPLER        = 1024,
-	BYTES_PER_PIXEL  = 4,
-	MAX_ARGS         = 128,
 	MAX_IMAGE        = 1024,
+	MAX_ARGS         = 16,
+	BYTES_PER_PIXEL  = 4,
 	PNG_HEADER_SIZE  = 8,
 	CMAP_COLORS      = 256,
 	CMAP_RED_SHIFT   = 5,
@@ -111,6 +111,7 @@ struct image {
 	int width;
 	int height;
 	int channel;
+	//int row_stride;
 	bool alpha;
 };
 
@@ -586,14 +587,12 @@ bool load_gif(const char *file, struct image *img)
 	code = gif_initialise(&gif, size, mem);
 	free(mem);
 	if (code != GIF_OK && code != GIF_WORKING) {
-		fprintf(stderr, "gif_initialize() failed\n");
 		gif_finalise(&gif);
 		return false;
 	}
 
 	code = gif_decode_frame(&gif, 0); /* read only first frame */
 	if (code != GIF_OK) {
-		fprintf(stderr, "gif_decode_frame() failed\n");
 		gif_finalise(&gif);
 		return false;
 	}
@@ -602,7 +601,7 @@ bool load_gif(const char *file, struct image *img)
 	img->height  = gif.height;
 	img->channel = BYTES_PER_PIXEL;
 
-	size      = img->width * img->height * img->channel;
+	size	  = img->width * img->height * img->channel;
 	img->data = (unsigned char *) ecalloc(size);
 	memcpy(img->data, gif.frame_image, size);
 
@@ -644,7 +643,7 @@ bool load_bmp(const char *file, struct image *img)
 	img->height  = bmp.height;
 	img->channel = BYTES_PER_PIXEL;
 
-	size      = img->width * img->height * img->channel;
+	size	  = img->width * img->height * img->channel;
 	img->data = (unsigned char *) ecalloc(size);
 	memcpy(img->data, bmp.bitmap, size);
 
@@ -697,7 +696,7 @@ bool load_pnm(const char *file, struct image *img)
 	while ((c = fgetc(fp)) != EOF) {
 		if (c == '#')
 			while ((c = fgetc(fp)) != '\n');
-		
+
 		if (isspace(c))
 			continue;
 
@@ -720,7 +719,7 @@ bool load_pnm(const char *file, struct image *img)
 		while ((c = fgetc(fp)) != EOF) {
 			if (c == '#')
 				while ((c = fgetc(fp)) != '\n');
-			
+
 			if (isspace(c))
 				continue;
 
@@ -737,6 +736,43 @@ bool load_pnm(const char *file, struct image *img)
 
 	efclose(fp);
 	return true;
+}
+
+void load_image(const char *file, struct image *img)
+{
+	if (strstr(file, "png") &&
+		lodepng_decode24_file(&img->data,
+			(unsigned *) &img->width, (unsigned *) &img->height, file) == 0) {
+		img->channel = 3;
+		goto load_success;
+	}
+
+	if (strstr(file, "bmp") && load_bmp(file, img))
+		goto load_success;
+
+	if (strstr(file, "gif") && load_gif(file, img))
+		goto load_success;
+
+	if ((strstr(file, "pnm") || strstr(file, "ppm") || strstr(file, "pgm") || strstr(file, "pbm"))
+		&& load_pnm(file, img))
+		goto load_success;
+
+	if ((img->data = stbi_load(file, &img->width, &img->height,
+		&img->channel, 0)) == NULL) {
+		fprintf(stderr, "image load error: %s\n", file);
+		exit(EXIT_FAILURE);
+	}
+
+load_success:
+	img->alpha = (img->channel == 2 || img->channel == 4) ? true: false;
+	if (DEBUG)
+		fprintf(stderr, "image width:%d height:%d channel:%d\n",
+			img->width, img->height, img->channel);
+}
+
+void free_image(struct image *img)
+{
+	free(img->data);
 }
 
 /* parse_arg functions */
@@ -800,48 +836,7 @@ void parse_arg(char *buf, struct parm_t *pt, int delim, int (is_valid)(int c))
 		fprintf(stderr, "argc:%d\n", pt->argc);
 }
 
-/* idump functions */
-void free_image(struct image *img)
-{
-	if (img->data != NULL)
-		free(img->data);
-	img->data = NULL;
-}
-
-void load_image(const char *file, struct image *img)
-{
-	free_image(img);
-
-	if (strstr(file, "png") &&
-		lodepng_decode24_file(&img->data,
-		(unsigned *) &img->width, (unsigned *) &img->height, file) == 0) {
-		img->channel = 3;
-		goto load_success;
-	}
-
-	if (strstr(file, "bmp") && load_bmp(file, img))
-		goto load_success;
-
-	if (strstr(file, "gif") && load_gif(file, img))
-		goto load_success;
-
-	if ((strstr(file, "pnm") || strstr(file, "ppm") || strstr(file, "pgm") || strstr(file, "pbm"))
-		&& load_pnm(file, img))
-		goto load_success;
-
-	if ((img->data = stbi_load(file, &img->width, &img->height,
-		&img->channel, 0)) == NULL) {
-		fprintf(stderr, "image load error: %s\n", file);
-		exit(EXIT_FAILURE);
-	}
-
-load_success:
-	img->alpha = (img->channel == 2 || img->channel == 4) ? true: false;
-	if (DEBUG)
-		fprintf(stderr, "image width:%d height:%d channel:%d\n",
-			img->width, img->height, img->channel);
-}
-
+/* yaimgfb functions */
 void init_images(struct image img[])
 {
 	int i;
