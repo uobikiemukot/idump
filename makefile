@@ -12,8 +12,5 @@ all:  $(DST)
 idump: idump.c $(HDR) $(SRC)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(SRC) $< -o $@
 
-idump_no_extra_lib: idump_no_extra_lib.c $(HDR) lib/lodepng.h
-	$(CC) $(CFLAGS) -lm $(SRC) lib/lodepng.c $< -o $@
-
 clean:
 	rm -f $(DST) *.o
