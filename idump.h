@@ -1,5 +1,6 @@
 /* See LICENSE for licence details. */
 #define _XOPEN_SOURCE 600
+#include <assert.h>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -20,4 +21,6 @@ enum {
 	DEBUG            = false,
 	BUFSIZE          = 1024,
 	MULTIPLER        = 1024,
+	/* for parsearg.h */
+	//MAX_ARGS         = 128,
 };
