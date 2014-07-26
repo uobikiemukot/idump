@@ -74,15 +74,15 @@ void emunmap(void *ptr, size_t len)
 		error("munmap");
 }
 
-void *ecalloc(size_t size)
+void *ecalloc(size_t nmemb, size_t size)
 {
-	void *p;
+	void *ptr;
 	errno = 0;
 
-	if ((p = calloc(1, size)) == NULL)
+	if ((ptr = calloc(nmemb, size)) == NULL)
 		error("calloc");
 
-	return p;
+	return ptr;
 }
 
 long int estrtol(const char *nptr, char **endptr, int base)
