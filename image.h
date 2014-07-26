@@ -1,19 +1,15 @@
 /* See LICENSE for licence details. */
 /* this header file depends loader.h */
-inline void get_rgb(uint8_t *r, uint8_t *g, uint8_t *b, unsigned char **data, int channel, bool has_alpha)
+inline void get_rgb(uint8_t *r, uint8_t *g, uint8_t *b, unsigned char *data, int channel)
 {
 	if (channel <= 2) { /* grayscale (+ alpha) */
-		*r = *g = *b = **data;
-		*data += 1;
+		*r = *g = *b = *data;
 	}
 	else { /* r, g, b (+ alpha) */
-		*r = **data; *data += 1;
-		*g = **data; *data += 1;
-		*b = **data; *data += 1;
+		*r = *(data + 0);
+		*g = *(data + 1);
+		*b = *(data + 2);
 	}
-
-	if (has_alpha)
-		*data += 1;
 }
 
 void rotate_image(struct image *img, int angle)
@@ -43,7 +39,7 @@ void rotate_image(struct image *img, int angle)
 	if (angle == 90 || angle == 270)
 		swapint(&img->width, &img->height);
 
-	rotate_data = (unsigned char *) ecalloc(img->width * img->height * img->channel);
+	rotate_data = (unsigned char *) ecalloc(img->width * img->height, img->channel);
 
 	src = img->data;
 	dst = rotate_data;
@@ -78,7 +74,8 @@ inline void get_average(struct image *img, int w_from, int w_to, int h_from, int
 	for (h = h_from; h < h_to; h++) {
 		for (w = w_from; w < w_to; w++) {
 			ptr = img->data + img->channel * (h * row_stride + w);
-			get_rgb(&r, &g, &b, &ptr, img->channel, img->alpha);
+			//get_rgb(&r, &g, &b, ptr, img->channel, img->alpha);
+			get_rgb(&r, &g, &b, ptr, img->channel);
 			rsum += r; gsum += g; bsum += b;
 		}
 	}
@@ -126,7 +123,7 @@ void resize_image(struct image *img, int disp_width, int disp_height)
 	/* FIXME: let the same num (img->width == fb->width), if it causes SEGV, remove "+ 1" */
 	img->width   = resize_rate * img->width / MULTIPLER + 1;
 	img->height  = resize_rate * img->height / MULTIPLER;
-	resized_data = (unsigned char *) ecalloc(img->width * img->height * img->channel);
+	resized_data = (unsigned char *) ecalloc(img->width * img->height, img->channel);
 
 	if (DEBUG)
 		fprintf(stderr, "resized image: %dx%d size:%d\n",
@@ -167,7 +164,7 @@ void draw_image(struct framebuffer *fb, struct image *img)
 				break;
 
 			ptr = img->data + img->channel * (h * img->width + w);
-			get_rgb(&r, &g, &b, &ptr, img->channel, img->alpha);
+			get_rgb(&r, &g, &b, ptr, img->channel);
 			color = get_color(&fb->vinfo, r, g, b);
 
 			/* update copy buffer */
@@ -187,4 +184,18 @@ void draw_image(struct framebuffer *fb, struct image *img)
 		size *= fb->line_length;
 		memcpy(fb->fp, fb->buf, size);
 	}
+}
+
+void draw_anim_image(struct framebuffer *fb, struct image *img)
+{
+	unsigned int loop_count = 0;
+
+	/* img->loop_count == 0 stands infinite loop, but ignore */
+	while (loop_count < img->frame_count) {
+		usleep(img->delay[loop_count] * 10000); /* gif delay 1 == 1/100 sec */
+		img->data = img->anim[loop_count];
+		draw_image(fb, img);
+		loop_count++;
+	}
+	img->data = NULL;
 }
