@@ -25,8 +25,8 @@ const uint32_t bit_mask[] = {
 };
 
 struct framebuffer {
-	char *fp;                       /* pointer of framebuffer (read only) */
-	char *buf;                      /* copy of framebuffer */
+	unsigned char *fp;              /* pointer of framebuffer (read only) */
+	unsigned char *buf;             /* copy of framebuffer */
 	int fd;                         /* file descriptor of framebuffer */
 	int width, height;              /* display resolution */
 	long screen_size;               /* screen data size (byte) */
@@ -39,12 +39,12 @@ struct framebuffer {
 
 void cmap_create(struct fb_cmap **cmap)
 {
-	*cmap           = (struct fb_cmap *) ecalloc(sizeof(struct fb_cmap));
+	*cmap           = (struct fb_cmap *) ecalloc(1, sizeof(struct fb_cmap));
 	(*cmap)->start  = 0;
 	(*cmap)->len    = CMAP_COLORS;
-	(*cmap)->red    = (uint16_t *) ecalloc(sizeof(uint16_t) * CMAP_COLORS);
-	(*cmap)->green  = (uint16_t *) ecalloc(sizeof(uint16_t) * CMAP_COLORS);
-	(*cmap)->blue   = (uint16_t *) ecalloc(sizeof(uint16_t) * CMAP_COLORS);
+	(*cmap)->red    = (uint16_t *) ecalloc(CMAP_COLORS, sizeof(uint16_t));
+	(*cmap)->green  = (uint16_t *) ecalloc(CMAP_COLORS, sizeof(uint16_t));
+	(*cmap)->blue   = (uint16_t *) ecalloc(CMAP_COLORS, sizeof(uint16_t));
 	(*cmap)->transp = NULL;
 }
 
@@ -65,7 +65,7 @@ void cmap_init(struct framebuffer *fb, struct fb_var_screeninfo *vinfo)
 	uint8_t index;
 	uint16_t r, g, b;
 
-	if (ioctl(fb->fd, FBIOGETCMAP, fb->cmap_org) < 0) {
+	if (ioctl(fb->fd, FBIOGETCMAP, fb->cmap_org)) {
 		/* not fatal, but we cannot restore original cmap */
 		fprintf(stderr, "couldn't get original cmap\n");
 		cmap_die(fb->cmap_org);
@@ -117,7 +117,7 @@ void cmap_init(struct framebuffer *fb, struct fb_var_screeninfo *vinfo)
 			bit_reverse(b, 16) & bit_mask[16]: b;
 	}
 
-	if (ioctl(fb->fd, FBIOPUTCMAP, fb->cmap) < 0)
+	if (ioctl(fb->fd, FBIOPUTCMAP, fb->cmap))
 		fatal("ioctl: FBIOGET_VSCREENINFO failed");
 }
 
@@ -191,10 +191,10 @@ void fb_init(struct framebuffer *fb)
 	else
 		fb->fd = eopen(fb_path, O_RDWR);
 
-	if (ioctl(fb->fd, FBIOGET_FSCREENINFO, &finfo) < 0)
+	if (ioctl(fb->fd, FBIOGET_FSCREENINFO, &finfo))
 		fatal("ioctl: FBIOGET_FSCREENINFO failed");
 
-	if (ioctl(fb->fd, FBIOGET_VSCREENINFO, &vinfo) < 0)
+	if (ioctl(fb->fd, FBIOGET_VSCREENINFO, &vinfo))
 		fatal("ioctl: FBIOGET_VSCREENINFO failed");
 
 	/* check screen offset and initialize because linux console change this */
@@ -226,8 +226,8 @@ void fb_init(struct framebuffer *fb)
 	else /* non packed pixel, mono color, grayscale: not implimented */
 		fatal("unsupported framebuffer type");
 
-	fb->fp = (char *) emmap(0, fb->screen_size, PROT_WRITE | PROT_READ, MAP_SHARED, fb->fd, 0);
-	fb->buf = (char *) ecalloc(fb->screen_size);
+	fb->fp    = (unsigned char *) emmap(0, fb->screen_size, PROT_WRITE | PROT_READ, MAP_SHARED, fb->fd, 0);
+	fb->buf   = (unsigned char *) ecalloc(1, fb->screen_size);
 	fb->vinfo = vinfo;
 }
 
