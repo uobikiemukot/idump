@@ -67,7 +67,7 @@ void w3m_draw(struct framebuffer *fb, struct image img[], struct parm_t *parm, i
 	for (h = 0; h < height; h++) {
 		for (w = 0; w < width; w++) {
 			ptr = ip->data + offset_img + w * ip->channel;
-			get_rgb(&r, &g, &b, &ptr, ip->channel, ip->alpha);
+			get_rgb(&r, &g, &b, ptr, ip->channel);
 			color = get_color(&fb->vinfo, r, g, b);
 			memcpy(fb->buf + offset_fb + w * fb->bpp, &color, fb->bpp);
 		}

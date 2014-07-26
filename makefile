@@ -1,5 +1,5 @@
 CC      ?= gcc
-LDFLAGS ?= -lm -lpng -ljpeg
+LDFLAGS ?= -lpng -ljpeg
 CFLAGS  ?= -Wall -Wextra -std=c99 -pedantic \
 	-march=native -Os -pipe -s
 
@@ -13,4 +13,4 @@ idump: idump.c $(HDR) $(SRC)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(SRC) $< -o $@
 
 clean:
-	rm -f $(DST) *.o
+	rm -f $(DST)
