@@ -68,10 +68,6 @@ int main(int argc, char **argv)
 	struct framebuffer fb;
 	struct image img;
 
-	/* init */
-	fb_init(&fb);
-	init_image(&img);
-
 	/* check arg */
 	while ((opt = getopt(argc, argv, "hfr:")) != -1) {
 		switch (opt) {
@@ -88,6 +84,10 @@ int main(int argc, char **argv)
 			break;
 		}
 	}
+
+	/* init */
+	fb_init(&fb);
+	init_image(&img);
 
 	/* open file */
 	if (optind < argc)
@@ -108,7 +108,10 @@ int main(int argc, char **argv)
 	if (resize)
 		resize_image(&img, fb.width, fb.height);
 
-	draw_image(&fb, &img);
+	if (img.is_anim)
+		draw_anim_image(&fb, &img);
+	else
+		draw_image(&fb, &img);
 
 	/* release resource */
 	free_image(&img);
