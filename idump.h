@@ -6,7 +6,8 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <linux/fb.h>
-#include <setjmp.h>
+//#include <setjmp.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -18,9 +19,12 @@
 #include <unistd.h>
 
 enum {
-	DEBUG            = false,
-	BUFSIZE          = 1024,
-	MULTIPLER        = 1024,
+	VERBOSE   = false,
+	BUFSIZE   = 1024,
+	MULTIPLER = 1024,
 	/* for parsearg.h */
 	//MAX_ARGS         = 128,
 };
+
+static const char *logfile = "/tmp/idump.log";
+FILE *logfp = NULL;
