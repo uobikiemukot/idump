@@ -33,12 +33,11 @@ char *make_temp_file(char *template)
 		perror("mkstemp");
 		return NULL;
 	}
-	if (DEBUG)
-		fprintf(stderr, "tmp file:%s\n", template);
+	logging(DEBUG, "tmp file:%s\n", template);
 
 	/* register cleanup function */
 	if (atexit(remove_temp_file) != 0)
-		fatal("atexit() failed\nmaybe temporary file remains...\n");
+		logging(ERROR, "atexit() failed\nmaybe temporary file remains...\n");
 
 	if (fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK) == -1)
 		fprintf(stderr, "couldn't set O_NONBLOCK flag\n");
@@ -52,7 +51,7 @@ char *make_temp_file(char *template)
 	if (file_size == 0) {
 		fprintf(stderr, "stdin is empty\n");
 		usage();
-		exit(EXIT_FAILURE);
+		return NULL;
 	}
 
 	return template;
@@ -67,6 +66,13 @@ int main(int argc, char **argv)
 	int opt;
 	struct framebuffer fb;
 	struct image img;
+
+	/* open logfile */
+	if ((logfp = efopen(logfile, "a")) == NULL) {
+		logging(ERROR, "couldn't open log file\n");
+		return EXIT_FAILURE;
+	}
+	setvbuf(logfp, NULL, _IONBF, 0);
 
 	/* check arg */
 	while ((opt = getopt(argc, argv, "hfr:")) != -1) {
@@ -85,19 +91,22 @@ int main(int argc, char **argv)
 		}
 	}
 
-	/* init */
-	fb_init(&fb);
-	init_image(&img);
-
 	/* open file */
 	if (optind < argc)
 		file = argv[optind];
 	else
 		file = make_temp_file(temp_file);
 
+	if (file == NULL)
+		goto cleanup;
+
+	/* init */
+	fb_init(&fb);
+	init_image(&img);
+
 	if (load_image(file, &img) == false) {
 		free_image(&img);
-		return EXIT_FAILURE;
+		goto cleanup;
 	}
 
 	/* rotate/resize and draw */
@@ -108,12 +117,11 @@ int main(int argc, char **argv)
 	if (resize)
 		resize_image(&img, fb.width, fb.height);
 
-	if (img.is_anim)
-		draw_anim_image(&fb, &img);
-	else
-		draw_image(&fb, &img);
+	draw_image(&fb, &img, 0, 0, 0, 0, img.width, img.height, true);
 
-	/* release resource */
+	/* cleanup resource */
+cleanup:
+	fclose(logfp);
 	free_image(&img);
 	fb_die(&fb);
 
