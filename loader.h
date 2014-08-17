@@ -31,31 +31,63 @@ enum filetype_t {
 };
 
 struct image {
-	unsigned char *data;
+	uint8_t *data;
 	int width;
 	int height;
 	int channel;
 	//int row_stride;
 	bool alpha;
 	/* for animation gif */
-	bool is_anim;
-	int loop_count;
-	unsigned frame_count;
-	unsigned char **anim;
+	uint8_t **anim;
 	unsigned int *delay;
+	unsigned frame_count;
+	int loop_count;
+	unsigned current_frame; /* for yaimgfb */
 };
 
 /* libjpeg functions */
-struct my_error_mgr {
+struct my_jpeg_error_mgr {
 	struct jpeg_error_mgr pub;
 	jmp_buf setjmp_buffer;
 };
 
-void my_error_exit(j_common_ptr cinfo)
+void my_jpeg_exit(j_common_ptr cinfo)
 {
-	struct my_error_mgr *myerr = (struct my_error_mgr *) cinfo->err;
-	(*cinfo->err->output_message) (cinfo);
+	char last_msg[JMSG_LENGTH_MAX];
+	struct my_jpeg_error_mgr *myerr = (struct my_jpeg_error_mgr *) cinfo->err;
+
+	//(*cinfo->err->output_message)(cinfo);
+	(*cinfo->err->format_message)(cinfo, last_msg);
+	logging(ERROR, "libjpeg: %s\n", last_msg);
+
 	longjmp(myerr->setjmp_buffer, 1);
+}
+
+void my_jpeg_error(j_common_ptr cinfo)
+{
+	char last_msg[JMSG_LENGTH_MAX];
+	//struct my_jpeg_error_mgr *myerr = (struct my_jpeg_error_mgr *) cinfo->err;
+
+	(*cinfo->err->format_message)(cinfo, last_msg);
+	logging(ERROR, "libjpeg: %s\n", last_msg);
+}
+
+void my_jpeg_warning(j_common_ptr cinfo, int msg_level)
+{
+	char last_msg[JMSG_LENGTH_MAX];
+	//struct jpeg_error_mgr *err = cinfo->err;
+	//struct my_jpeg_error_mgr *myerr = (struct my_jpeg_error_mgr *) cinfo->err;
+
+	(*cinfo->err->format_message)(cinfo, last_msg);
+
+	if (msg_level < 0) { /* warning */
+		if (cinfo->err->num_warnings == 0 || cinfo->err->trace_level >= 3)
+			logging(WARN, "libjpeg: %s\n", last_msg);
+		cinfo->err->num_warnings++;
+	} else { /* trace */
+		if (cinfo->err->trace_level >= msg_level)
+			logging(WARN, "libjpeg: %s\n", last_msg);
+	}
 }
 
 bool load_jpeg(FILE *fp, struct image *img)
@@ -63,10 +95,12 @@ bool load_jpeg(FILE *fp, struct image *img)
 	int row_stride, size;
 	JSAMPARRAY buffer;
 	struct jpeg_decompress_struct cinfo;
-	struct my_error_mgr jerr;
+	struct my_jpeg_error_mgr jerr;
 
 	cinfo.err = jpeg_std_error(&jerr.pub);
-	jerr.pub.error_exit = my_error_exit;
+	jerr.pub.error_exit = my_jpeg_exit;
+	jerr.pub.emit_message = my_jpeg_warning;
+	jerr.pub.output_message = my_jpeg_error;
 
 	if (setjmp(jerr.setjmp_buffer)) {
 		jpeg_destroy_decompress(&cinfo);
@@ -85,7 +119,7 @@ bool load_jpeg(FILE *fp, struct image *img)
 	img->channel = cinfo.output_components;
 
 	size = img->width * img->height * img->channel;
-	img->data = (unsigned char *) ecalloc(1, size);
+	img->data = (uint8_t *) ecalloc(1, size);
 
 	row_stride = cinfo.output_width * cinfo.output_components;
 	buffer = (*cinfo.mem->alloc_sarray)((j_common_ptr) &cinfo, JPOOL_IMAGE, row_stride, 1);
@@ -102,6 +136,20 @@ bool load_jpeg(FILE *fp, struct image *img)
 }
 
 /* libpng function */
+
+void my_png_error(png_structp png_ptr, png_const_charp error_msg)
+{
+	logging(ERROR, "libpng: %s\n", error_msg);
+	if (png_ptr)
+		png_longjmp(png_ptr, 1);
+}
+
+void my_png_warning(png_structp png_ptr, png_const_charp warning_msg)
+{
+	(void) png_ptr;
+	logging(WARN, "libpng: %s\n", warning_msg);
+}
+
 bool load_png(FILE *fp, struct image *img)
 {
 	int i, row_stride, size;
@@ -115,7 +163,7 @@ bool load_png(FILE *fp, struct image *img)
 	if (png_sig_cmp(header, 0, PNG_HEADER_SIZE))
 		return false;
 
-	if ((png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL)) == NULL)
+	if ((png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, my_png_error, my_png_warning)) == NULL)
 		return false;
 
 	if ((info_ptr = png_create_info_struct(png_ptr)) == NULL) {
@@ -138,7 +186,7 @@ bool load_png(FILE *fp, struct image *img)
 	img->channel = png_get_channels(png_ptr, info_ptr);
 
 	size = img->width * img->height * img->channel;
-	img->data = (unsigned char *) ecalloc(1, size);
+	img->data = (uint8_t *) ecalloc(1, size);
 
 	row_stride   = png_get_rowbytes(png_ptr, info_ptr);
 	row_pointers = png_get_rows(png_ptr, info_ptr);
@@ -256,7 +304,7 @@ bool load_gif(FILE *fp, struct image *img)
 	size = img->width * img->height * img->channel;
 
 	/* read animation gif */
-	img->anim  = (unsigned char **) ecalloc(gif.frame_count, sizeof(unsigned char *));
+	img->anim  = (uint8_t **) ecalloc(gif.frame_count, sizeof(uint8_t *));
 	img->delay = (unsigned int *) ecalloc(gif.frame_count, sizeof(unsigned int));
 
 	for (i = 0; i < gif.frame_count; i++) {
@@ -264,14 +312,13 @@ bool load_gif(FILE *fp, struct image *img)
 		if (code != GIF_OK)
 			goto error_anim_decode_failed;
 
-		img->anim[i] = (unsigned char *) ecalloc(1, size);
+		img->anim[i] = (uint8_t *) ecalloc(1, size);
 		memcpy(img->anim[i], gif.frame_image, size);
 
 		img->delay[i] = gif.frames[i].frame_delay;
 	}
 	img->frame_count = gif.frame_count;
 	img->loop_count = gif.loop_count;
-	img->is_anim = true;
 
 	gif_finalise(&gif);
 	free(mem);
@@ -317,7 +364,7 @@ bool load_bmp(FILE *fp, struct image *img)
 	img->channel = BYTES_PER_PIXEL;
 
 	size      = img->width * img->height * img->channel;
-	img->data = (unsigned char *) ecalloc(1, size);
+	img->data = (uint8_t *) ecalloc(1, size);
 	memcpy(img->data, bmp.bitmap, size);
 
 	bmp_finalise(&bmp);
@@ -422,11 +469,11 @@ void init_image(struct image *img)
 	img->channel = 0;
 	img->alpha   = false;
 	/* for animation gif */
-	img->anim    = NULL;
-	img->delay   = NULL;
-	img->is_anim = false;
-	img->frame_count = 0;
-	img->loop_count  = 0;
+	img->anim  = NULL;
+	img->delay = NULL;
+	img->frame_count   = 0;
+	img->loop_count    = 0;
+	img->current_frame = 0;
 }
 
 void free_image(struct image *img)
@@ -436,7 +483,7 @@ void free_image(struct image *img)
 	if (img->data != NULL)
 		free(img->data);
 
-	if (img->is_anim) {
+	if (img->anim) {
 		for (i = 0; i < img->frame_count; i++)
 			free(img->anim[i]);
 		free(img->anim);
@@ -453,16 +500,17 @@ enum filetype_t check_filetype(FILE *fp)
 		BMP       : 42 4D (ASCII 'B' 'M')
 		PNM       : 50 [31|32|33|34|35|36] ('P' ['1' - '6'])
 	*/
-	unsigned char header[CHECK_HEADER_SIZE];
-	static unsigned char jpeg_header[] = {0xFF, 0xD8};
-	static unsigned char png_header[]  = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
-	static unsigned char gif_header[]  = {0x47, 0x49, 0x46};
-	static unsigned char bmp_header[]  = {0x42, 0x4D};
+	uint8_t header[CHECK_HEADER_SIZE];
+	static uint8_t jpeg_header[] = {0xFF, 0xD8};
+	static uint8_t png_header[]  = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+	static uint8_t gif_header[]  = {0x47, 0x49, 0x46};
+	static uint8_t bmp_header[]  = {0x42, 0x4D};
 	size_t size;
 
 	if ((size = fread(header, 1, CHECK_HEADER_SIZE, fp)) != CHECK_HEADER_SIZE) {
-		fprintf(stderr, "couldn't read header\n");
-		exit(EXIT_FAILURE);
+		logging(ERROR, "couldn't read header\n");
+		//exit(EXIT_FAILURE);
+		return TYPE_UNKNOWN;
 	}
 	fseek(fp, 0L, SEEK_SET);
 
@@ -486,7 +534,7 @@ bool load_image(const char *file, struct image *img)
 	enum filetype_t type;
 	FILE *fp;
 
-	static bool (*loader[])(FILE *fp , struct image *img) = {
+	static bool (*loader[])(FILE *fp, struct image *img) = {
 		[TYPE_JPEG] = load_jpeg,
 		[TYPE_PNG]  = load_png,
 		[TYPE_GIF]  = load_gif,
@@ -494,30 +542,30 @@ bool load_image(const char *file, struct image *img)
 		[TYPE_PNM]  = load_pnm,
 	};
 
-	fp = efopen(file, "r");
+	if ((fp = efopen(file, "r")) == NULL)
+		return false;
+ 
 	if ((type = check_filetype(fp)) == TYPE_UNKNOWN) {
-		fprintf(stderr, "unknown file type: %s\n", file);
+		logging(ERROR, "unknown file type: %s\n", file);
 		return false;
 	}
 
 	if (loader[type](fp, img)) {
 		img->alpha = (img->channel == 2 || img->channel == 4) ? true: false;
 		//img->row_stride = img->width * img->channel;
-		if (DEBUG) {
-			fprintf(stderr, "image width:%d height:%d channel:%d alpha:%s\n",
-				img->width, img->height, img->channel, (img->alpha) ? "true": "false");
-			if (img->is_anim) {
-				fprintf(stderr, "frame:%d loop:%d ", img->frame_count, img->loop_count);
-				for (i = 0; i < img->frame_count; i++)
-					fprintf(stderr, "delay[%u]:%u ", i, img->delay[i]);
-				fprintf(stderr, "\n");
-			}
+		logging(DEBUG, "image width:%d height:%d channel:%d alpha:%s\n",
+			img->width, img->height, img->channel, (img->alpha) ? "true": "false");
+		if (img->anim) {
+			logging(DEBUG, "frame:%d loop:%d ", img->frame_count, img->loop_count);
+			for (i = 0; i < img->frame_count; i++)
+				logging(DEBUG, "delay[%u]:%u ", i, img->delay[i]);
+			logging(DEBUG, "\n");
 		}
 		efclose(fp);
 		return true;
 	}
 
-	fprintf(stderr, "image load error: %s\n", file);
+	logging(ERROR, "image load error: %s\n", file);
 	efclose(fp);
 	return false;
 }
