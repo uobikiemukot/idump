@@ -23,9 +23,8 @@ void add_parm(struct parm_t *pt, char *cp)
 	if (pt->argc >= MAX_ARGS)
 		return;
 
-	if (DEBUG)
-		fprintf(stderr, "argv[%d]: %s\n",
-			pt->argc, (cp == NULL) ? "NULL": cp);
+	logging(DEBUG, "argv[%d]: %s\n",
+		pt->argc, (cp == NULL) ? "NULL": cp);
 
 	pt->argv[pt->argc] = cp;
 	pt->argc++;
@@ -45,8 +44,7 @@ void parse_arg(char *buf, struct parm_t *pt, int delim, int (is_valid)(int c))
 		return;
 
 	length = strlen(buf);
-	if (DEBUG)
-		fprintf(stderr, "parse_arg()\nlength:%d\n", length);
+	logging(DEBUG, "parse_arg() buf length:%d\n", length);
 
 	vp = NULL;
 	for (i = 0; i < length; i++) {
@@ -65,6 +63,5 @@ void parse_arg(char *buf, struct parm_t *pt, int delim, int (is_valid)(int c))
 			add_parm(pt, vp);
 	}
 
-	if (DEBUG)
-		fprintf(stderr, "argc:%d\n", pt->argc);
+	logging(DEBUG, "argc:%d\n", pt->argc);
 }
