@@ -1,6 +1,6 @@
 /* See LICENSE for licence details. */
 /* this header file depends loader.h */
-inline void get_rgb(uint8_t *r, uint8_t *g, uint8_t *b, unsigned char *data, int channel)
+inline void get_rgb(uint8_t *r, uint8_t *g, uint8_t *b, const uint8_t *data, int channel)
 {
 	if (channel <= 2) { /* grayscale (+ alpha) */
 		*r = *g = *b = *data;
@@ -15,7 +15,7 @@ inline void get_rgb(uint8_t *r, uint8_t *g, uint8_t *b, unsigned char *data, int
 void rotate_image(struct image *img, int angle)
 {
 	int x1, x2, y1, y2, r, src_width;
-	unsigned char *rotate_data, *dst, *src;
+	uint8_t *rotate_data, *dst, *src;
 	long offset_dst, offset_src;
 
 	static const int cos[3] = {0, -1,  0};
@@ -39,7 +39,7 @@ void rotate_image(struct image *img, int angle)
 	if (angle == 90 || angle == 270)
 		swapint(&img->width, &img->height);
 
-	rotate_data = (unsigned char *) ecalloc(img->width * img->height, img->channel);
+	rotate_data = (uint8_t *) ecalloc(img->width * img->height, img->channel);
 
 	src = img->data;
 	dst = rotate_data;
@@ -57,17 +57,15 @@ void rotate_image(struct image *img, int angle)
 	free(img->data);
 	img->data = rotate_data;
 
-	if (DEBUG)
-		fprintf(stderr, "rotated image: %dx%d size:%d\n",
-			img->width, img->height, img->width * img->height * img->channel);
+	logging(DEBUG, "rotated image: %dx%d size:%d\n",
+		img->width, img->height, img->width * img->height * img->channel);
 }
 
 inline void get_average(struct image *img, int w_from, int w_to, int h_from, int h_to,
-	int row_stride, unsigned char *pixel)
+	int row_stride, uint8_t *pixel)
 {
 	int h, w, cells;
-	unsigned char *ptr;
-	uint8_t r, g, b;
+	uint8_t r, g, b, *ptr;
 	uint16_t rsum, gsum, bsum;
 
 	rsum = gsum = bsum = 0;
@@ -81,7 +79,7 @@ inline void get_average(struct image *img, int w_from, int w_to, int h_from, int
 	}
 	cells = (h_to - h_from) * (w_to - w_from);
 	/*
-	printf("h_from:%d h_to:%d w_from:%d w_to:%d cells:%d\n",
+	logging(DEBUG, "h_from:%d h_to:%d w_from:%d w_to:%d cells:%d\n",
 		h_from, h_to, w_from, w_to, cells);
 	*/
 	if (cells > 1) {
@@ -105,16 +103,15 @@ void resize_image(struct image *img, int disp_width, int disp_height)
 	/* TODO: support enlarge */
 	int width_rate, height_rate, resize_rate;
 	int w, h, src_width, h_from, w_from, h_to, w_to;
-	unsigned char *dst, *resized_data, pixel[img->channel];
+	uint8_t *dst, *resized_data, pixel[img->channel];
 	long offset_dst;
 
 	width_rate  = MULTIPLER * disp_width  / img->width;
 	height_rate = MULTIPLER * disp_height / img->height;
 	resize_rate = (width_rate < height_rate) ? width_rate: height_rate;
 
-	if (DEBUG)
-		fprintf(stderr, "width_rate:%.2d height_rate:%.2d resize_rate:%.2d\n",
-			width_rate, height_rate, resize_rate);
+	logging(DEBUG, "width_rate:%.2d height_rate:%.2d resize_rate:%.2d\n",
+		width_rate, height_rate, resize_rate);
 
 	if ((resize_rate / MULTIPLER) >= 1)
 		return;
@@ -123,14 +120,12 @@ void resize_image(struct image *img, int disp_width, int disp_height)
 	/* FIXME: let the same num (img->width == fb->width), if it causes SEGV, remove "+ 1" */
 	img->width   = resize_rate * img->width / MULTIPLER + 1;
 	img->height  = resize_rate * img->height / MULTIPLER;
-	resized_data = (unsigned char *) ecalloc(img->width * img->height, img->channel);
+	resized_data = (uint8_t *) ecalloc(img->width * img->height, img->channel);
 
-	if (DEBUG)
-		fprintf(stderr, "resized image: %dx%d size:%d\n",
-			img->width, img->height, img->width * img->height * img->channel);
+	logging(DEBUG, "resized image: %dx%d size:%d\n",
+		img->width, img->height, img->width * img->height * img->channel);
 
 	dst = resized_data;
-
 	for (h = 0; h < img->height; h++) {
 		h_from = MULTIPLER * h / resize_rate;
 		h_to   = MULTIPLER * (h + 1) / resize_rate;
@@ -146,14 +141,14 @@ void resize_image(struct image *img, int disp_width, int disp_height)
 	img->data = resized_data;
 }
 
+#if 0
 void draw_image(struct framebuffer *fb, struct image *img)
 {
 	/* TODO: check [xy]_offset (alyway zero now) */
 	/* 14/06/08: offset removed */
 	int w, h, offset, size;
-	uint8_t r, g, b;
+	uint8_t r, g, b, *ptr;
 	uint32_t color;
-	unsigned char *ptr;
 
 	for (h = 0; h < img->height; h++) {
 		if (h >= fb->height)
@@ -168,13 +163,13 @@ void draw_image(struct framebuffer *fb, struct image *img)
 			color = get_color(&fb->vinfo, r, g, b);
 
 			/* update copy buffer */
-			offset = h * fb->line_length + w * fb->bpp;
-			memcpy(fb->buf + offset, &color, fb->bpp);
+			offset = h * fb->line_length + w * fb->bytes_per_pixel;
+			memcpy(fb->buf + offset, &color, fb->bytes_per_pixel);
 		}
 		/* draw each scanline */
 		if (img->width < fb->width) {
 			offset = h * fb->line_length;
-			size = img->width * fb->bpp;
+			size = img->width * fb->bytes_per_pixel;
 			memcpy(fb->fp + offset, fb->buf + offset, size);
 		}
 	}
@@ -190,12 +185,113 @@ void draw_anim_image(struct framebuffer *fb, struct image *img)
 {
 	unsigned int loop_count = 0;
 
-	/* img->loop_count == 0 stands infinite loop, but ignore */
+	/* ignore img->loopimg_count, force 1 loop  */
 	while (loop_count < img->frame_count) {
-		usleep(img->delay[loop_count] * 10000); /* gif delay 1 == 1/100 sec */
 		img->data = img->anim[loop_count];
 		draw_image(fb, img);
+		usleep(img->delay[loop_count] * 10000); /* gif delay 1 == 1/100 sec */
 		loop_count++;
 	}
 	img->data = NULL;
+}
+#endif
+
+void draw_single(struct framebuffer *fb, struct image *img,
+	int offset_x, int offset_y, int shift_x, int shift_y, int width, int height)
+{
+	int w, h, offset, size;
+	uint8_t r, g, b, *ptr;
+	uint32_t color;
+
+	for (h = 0; h < height; h++) {
+		if (h >= fb->height)
+			break;
+
+		for (w = 0; w < width; w++) {
+			if (w >= fb->width)
+				break;
+
+			ptr = img->data + img->channel * ((h + shift_y) * img->width + w + shift_x);
+			get_rgb(&r, &g, &b, ptr, img->channel);
+			color = get_color(&fb->vinfo, r, g, b);
+
+			/* update copy buffer */
+			offset = (h + offset_y) * fb->line_length + (w + offset_x) * fb->bytes_per_pixel;
+			memcpy(fb->buf + offset, &color, fb->bytes_per_pixel);
+		}
+		/* draw each scanline */
+		if (width < fb->width) {
+			offset = (h + offset_y) * fb->line_length + offset_x * fb->bytes_per_pixel;
+			size = width * fb->bytes_per_pixel;
+			memcpy(fb->fp + offset, fb->buf + offset, size);
+		}
+	}
+	/* we can draw all image data at once! */
+	if (width >= fb->width) {
+		size = (height > fb->height) ? fb->height: height;
+		size *= fb->line_length;
+		memcpy(fb->fp, fb->buf, size);
+	}
+}
+
+void draw_anim(struct framebuffer *fb, struct image *img,
+	int offset_x, int offset_y, int shift_x, int shift_y, int width, int height)
+{
+	unsigned int loop_count = 0;
+
+	/* ignore img->loopimg_count, force 1 loop  */
+	while (loop_count < img->frame_count) {
+		img->data = img->anim[loop_count];
+		draw_single(fb, img, offset_x, offset_y, shift_x, shift_y, width, height);
+		usleep(img->delay[loop_count] * 10000); /* gif delay 1 == 1/100 sec */
+		loop_count++;
+	}
+	img->data = NULL;
+}
+
+void draw_image(struct framebuffer *fb, struct image *img,
+	int offset_x, int offset_y, int shift_x, int shift_y, int width, int height, bool enable_anim)
+{
+	/*
+		+- screen -----------------+
+		|        ^                 |
+		|        | offset_y        |
+		|        v                 |
+		|        +- image --+      |
+		|<------>|          |      |
+		|offset_x|          |      |
+		|        |          |      |
+		|        +----------+      |
+		+--------------|-----------+
+					   |
+					   v
+		+- image ----------------------+
+		|       ^                      |
+		|       | shift_y              |
+		|       v                      |
+		|       +- view port + ^       |
+		|<----->|            | |       |
+		|shift_x|            | | height|
+		|       |            | |       |
+		|       +------------+ v       |
+		|       <-  width ->           |
+		+------------------------------+
+	*/
+
+	if (shift_x + width > img->width)
+		width = img->width - shift_x;
+
+	if (shift_y + height > img->height)
+		height = img->height - shift_y;
+
+	if (offset_x + width > fb->width)
+		width = fb->width - offset_x;
+
+	if (offset_y + height > fb->height)
+		height = fb->height - offset_y;
+
+	if (enable_anim && img->anim)
+		draw_anim(fb, img, offset_x, offset_y, shift_x, shift_y, width, height);
+	else
+		draw_single(fb, img, offset_x, offset_y, shift_x, shift_y, width, height);
 }
