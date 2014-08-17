@@ -25,28 +25,17 @@ const uint32_t bit_mask[] = {
 };
 
 struct framebuffer {
-	unsigned char *fp;              /* pointer of framebuffer (read only) */
-	unsigned char *buf;             /* copy of framebuffer */
+	uint8_t *fp;                    /* pointer of framebuffer (read only) */
+	uint8_t *buf;                   /* copy of framebuffer */
 	int fd;                         /* file descriptor of framebuffer */
 	int width, height;              /* display resolution */
 	long screen_size;               /* screen data size (byte) */
 	int line_length;                /* line length (byte) */
-	int bpp;                        /* BYTES per pixel */
+	int bytes_per_pixel;            /* BYTES per pixel */
 	struct fb_cmap *cmap,           /* cmap for legacy framebuffer (8bpp pseudocolor) */
 		*cmap_org;                  /* copy of default cmap */
 	struct fb_var_screeninfo vinfo; /* display info: need for get_color() */
 };
-
-void cmap_create(struct fb_cmap **cmap)
-{
-	*cmap           = (struct fb_cmap *) ecalloc(1, sizeof(struct fb_cmap));
-	(*cmap)->start  = 0;
-	(*cmap)->len    = CMAP_COLORS;
-	(*cmap)->red    = (uint16_t *) ecalloc(CMAP_COLORS, sizeof(uint16_t));
-	(*cmap)->green  = (uint16_t *) ecalloc(CMAP_COLORS, sizeof(uint16_t));
-	(*cmap)->blue   = (uint16_t *) ecalloc(CMAP_COLORS, sizeof(uint16_t));
-	(*cmap)->transp = NULL;
-}
 
 void cmap_die(struct fb_cmap *cmap)
 {
@@ -59,7 +48,27 @@ void cmap_die(struct fb_cmap *cmap)
 	}
 }
 
-void cmap_init(struct framebuffer *fb, struct fb_var_screeninfo *vinfo)
+bool cmap_create(struct fb_cmap **cmap)
+{
+	if ((*cmap = (struct fb_cmap *) ecalloc(1, sizeof(struct fb_cmap))) == NULL)
+		return false;
+
+	(*cmap)->start  = 0;
+	(*cmap)->len    = CMAP_COLORS;
+
+	(*cmap)->red    = (uint16_t *) ecalloc(CMAP_COLORS, sizeof(uint16_t));
+	(*cmap)->green  = (uint16_t *) ecalloc(CMAP_COLORS, sizeof(uint16_t));
+	(*cmap)->blue   = (uint16_t *) ecalloc(CMAP_COLORS, sizeof(uint16_t));
+	(*cmap)->transp = NULL;
+
+	if (!(*cmap)->red || !(*cmap)->green || !(*cmap)->blue) {
+		cmap_die(*cmap);
+		return false;
+	}
+	return true;
+}
+
+bool cmap_init(struct framebuffer *fb, struct fb_var_screeninfo *vinfo)
 {
 	int i;
 	uint8_t index;
@@ -67,7 +76,7 @@ void cmap_init(struct framebuffer *fb, struct fb_var_screeninfo *vinfo)
 
 	if (ioctl(fb->fd, FBIOGETCMAP, fb->cmap_org)) {
 		/* not fatal, but we cannot restore original cmap */
-		fprintf(stderr, "couldn't get original cmap\n");
+		logging(ERROR, "couldn't get original cmap\n");
 		cmap_die(fb->cmap_org);
 		fb->cmap_org = NULL; 
 	}
@@ -104,8 +113,7 @@ void cmap_init(struct framebuffer *fb, struct fb_var_screeninfo *vinfo)
 		b = b * bit_mask[16] / bit_mask[CMAP_BLUE_MASK];
 
 		/*
-		if (DEBUG)
-			fprintf(stderr, "index:%.2X r:%.4X g:%.4X b:%.4X\n", index, r, g, b);
+		logging(DEBUG, "index:%.2X r:%.4X g:%.4X b:%.4X\n", index, r, g, b);
 		*/
 
 		/* check bit reverse flag */
@@ -117,8 +125,11 @@ void cmap_init(struct framebuffer *fb, struct fb_var_screeninfo *vinfo)
 			bit_reverse(b, 16) & bit_mask[16]: b;
 	}
 
-	if (ioctl(fb->fd, FBIOPUTCMAP, fb->cmap))
-		fatal("ioctl: FBIOGET_VSCREENINFO failed");
+	if (ioctl(fb->fd, FBIOPUTCMAP, fb->cmap)) {
+		logging(ERROR, "ioctl: FBIOGET_VSCREENINFO failed\n");
+		return false;
+	}
+	return true;
 }
 
 void draw_cmap_table(struct framebuffer *fb)
@@ -137,14 +148,15 @@ void draw_cmap_table(struct framebuffer *fb)
 
 		for (h = 0; h < CELL_HEIGHT; h++) {
 			for (w = 0; w < CELL_WIDTH; w++) {
-				memcpy(fb->fp + (CELL_WIDTH * w_offset + w) * fb->bpp
-					+ (h + h_offset) * fb->line_length, &c, fb->bpp);
+				/* BUG: this memcpy is invalid, may fail at 24bpp and MSByte first env */
+				memcpy(fb->fp + (CELL_WIDTH * w_offset + w) * fb->bytes_per_pixel
+					+ (h + h_offset) * fb->line_length, &c, fb->bytes_per_pixel);
 			}
 		}
 	}
 }
 
-inline uint32_t get_color(struct fb_var_screeninfo *vinfo, uint8_t r, uint8_t g, uint8_t b)
+static inline uint32_t get_color(struct fb_var_screeninfo *vinfo, uint8_t r, uint8_t g, uint8_t b)
 {
 	if (vinfo->bits_per_pixel == 8) {
 		/*
@@ -180,22 +192,47 @@ inline uint32_t get_color(struct fb_var_screeninfo *vinfo, uint8_t r, uint8_t g,
 		+ (b << vinfo->blue.offset);
 }
 
-void fb_init(struct framebuffer *fb)
+bool fb_init(struct framebuffer *fb)
 {
 	char *path;
 	struct fb_fix_screeninfo finfo;
 	struct fb_var_screeninfo vinfo;
+
+	const char *fb_type[] = {
+		[FB_TYPE_PACKED_PIXELS]      = "FB_TYPE_PACKED_PIXELS",
+		[FB_TYPE_PLANES]             = "FB_TYPE_PLANES",
+		[FB_TYPE_INTERLEAVED_PLANES] = "FB_TYPE_INTERLEAVED_PLANES",
+		[FB_TYPE_TEXT]               = "FB_TYPE_TEXT",
+		[FB_TYPE_VGA_PLANES]         = "FB_TYPE_VGA_PLANES",
+		[FB_TYPE_FOURCC]             = "FB_TYPE_FOURCC",
+	};
+	const char *fb_visual[] = {
+		[FB_VISUAL_MONO01]             = "FB_VISUAL_MONO01",
+		[FB_VISUAL_MONO10]             = "FB_VISUAL_MONO10",
+		[FB_VISUAL_TRUECOLOR]          = "FB_VISUAL_TRUECOLOR",
+		[FB_VISUAL_PSEUDOCOLOR]        = "FB_VISUAL_PSEUDOCOLOR",
+		[FB_VISUAL_DIRECTCOLOR]        = "FB_VISUAL_DIRECTCOLOR",
+		[FB_VISUAL_STATIC_PSEUDOCOLOR] = "FB_VISUAL_STATIC_PSEUDOCOLOR",
+		[FB_VISUAL_FOURCC]             = "FB_VISUAL_FOURCC",
+	};
 
 	if ((path = getenv("FRAMEBUFFER")) != NULL)
 		fb->fd = eopen(path, O_RDWR);
 	else
 		fb->fd = eopen(fb_path, O_RDWR);
 
-	if (ioctl(fb->fd, FBIOGET_FSCREENINFO, &finfo))
-		fatal("ioctl: FBIOGET_FSCREENINFO failed");
+	if (fb->fd < 0)
+		return false;
 
-	if (ioctl(fb->fd, FBIOGET_VSCREENINFO, &vinfo))
-		fatal("ioctl: FBIOGET_VSCREENINFO failed");
+	if (ioctl(fb->fd, FBIOGET_FSCREENINFO, &finfo)) {
+		logging(ERROR, "ioctl: FBIOGET_FSCREENINFO failed\n");
+		goto err_init_failed;
+	}
+
+	if (ioctl(fb->fd, FBIOGET_VSCREENINFO, &vinfo)) {
+		logging(ERROR, "ioctl: FBIOGET_VSCREENINFO failed\n");
+		goto err_init_failed;
+	}
 
 	/* check screen offset and initialize because linux console change this */
 	/*
@@ -210,25 +247,40 @@ void fb_init(struct framebuffer *fb)
 	fb->screen_size = finfo.smem_len;
 	fb->line_length = finfo.line_length;
 
-	if ((finfo.visual == FB_VISUAL_TRUECOLOR || finfo.visual == FB_VISUAL_DIRECTCOLOR)
+	if (finfo.visual == FB_VISUAL_TRUECOLOR
 		&& (vinfo.bits_per_pixel == 15 || vinfo.bits_per_pixel == 16
 		|| vinfo.bits_per_pixel == 24 || vinfo.bits_per_pixel == 32)) {
 		fb->cmap = fb->cmap_org = NULL;
-		fb->bpp = my_ceil(vinfo.bits_per_pixel, BITS_PER_BYTE);
-	}
-	else if (finfo.visual == FB_VISUAL_PSEUDOCOLOR
+		fb->bytes_per_pixel = my_ceil(vinfo.bits_per_pixel, BITS_PER_BYTE);
+	} else if ((finfo.visual == FB_VISUAL_PSEUDOCOLOR || finfo.visual == FB_VISUAL_DIRECTCOLOR)
 		&& vinfo.bits_per_pixel == 8) {
-		cmap_create(&fb->cmap);
-		cmap_create(&fb->cmap_org);
-		cmap_init(fb, &vinfo);
-		fb->bpp = 1;
+		/* XXX: direct color is not tested! */
+		if (!cmap_create(&fb->cmap) || !cmap_create(&fb->cmap_org) || !cmap_init(fb, &vinfo)) {
+			logging(ERROR, "cmap init failed\n");
+			goto err_init_failed;
+		}
+		fb->bytes_per_pixel = 1;
+	} else { /* non packed pixel, mono color, grayscale: not implimented */
+		logging(ERROR, "unsupported framebuffer type\nvisual:%s type:%s bpp:%d\n",
+			fb_visual[finfo.visual], fb_type[finfo.type], vinfo.bits_per_pixel);
+		goto err_init_failed;
 	}
-	else /* non packed pixel, mono color, grayscale: not implimented */
-		fatal("unsupported framebuffer type");
 
-	fb->fp    = (unsigned char *) emmap(0, fb->screen_size, PROT_WRITE | PROT_READ, MAP_SHARED, fb->fd, 0);
-	fb->buf   = (unsigned char *) ecalloc(1, fb->screen_size);
+	if ((fb->fp = (uint8_t *) emmap(0, fb->screen_size, PROT_WRITE, MAP_SHARED, fb->fd, 0)) == MAP_FAILED)
+		goto err_init_failed;
+
+	if ((fb->buf = (uint8_t *) ecalloc(1, fb->screen_size)) == NULL)
+		goto err_init_failed;
+
 	fb->vinfo = vinfo;
+	return true;
+
+err_init_failed:
+	if (fb->fp != MAP_FAILED)
+		munmap(fb->fp, fb->screen_size);
+	if (fb->fd >= 0)
+		close(fb->fd);
+	return false;
 }
 
 void fb_die(struct framebuffer *fb)
