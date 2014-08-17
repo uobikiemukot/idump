@@ -1,16 +1,83 @@
 /* See LICENSE for licence details. */
 /* error functions */
-void error(char *str)
+/*
+void logging(ERROR, char *format, ...)
 {
-	perror(str);
-	exit(EXIT_FAILURE);
+	va_list arg;
+	FILE *outfp;
+
+	outfp = (logfp == NULL) ? stderr: logfp;
+	fprintf(outfp, ">>ERROR<<\t");
+	va_start(arg, format);
+	vfprintf(outfp, format, arg);
+	va_end(arg);
 }
 
+void warn(char *format, ...)
+{
+	va_list arg;
+	FILE *outfp;
+
+	outfp = (logfp == NULL) ? stderr: logfp;
+	fprintf(outfp, ">>WARN<<\t");
+	va_start(arg, format);
+	vfprintf(outfp, format, arg);
+	va_end(arg);
+}
+
+void debug(char *format, ...)
+{
+	va_list arg;
+	FILE *outfp;
+
+	if (!VERBOSE)
+		return;
+
+	outfp = (logfp == NULL) ? stderr: logfp;
+	fprintf(outfp, ">>DEBUG<<\t");
+	va_start(arg, format);
+	vfprintf(outfp, format, arg);
+	va_end(arg);
+}
+*/
+
+enum loglevel {
+	DEBUG = 0,
+	WARN,
+	ERROR,
+	FATAL,
+};
+
+void logging(int loglevel, char *format, ...)
+{
+	va_list arg;
+	FILE *outfp;
+
+	static const char *loglevel2str[] = {
+		[DEBUG] = "DEBUG",
+		[WARN]  = "WARN",
+		[ERROR] = "ERROR",
+		[FATAL] = "FATAL",
+	};
+
+	if (loglevel == DEBUG && !VERBOSE)
+		return;
+
+	outfp = (logfp == NULL) ? stderr: logfp;
+
+	fprintf(outfp, ">>%s<<\t", loglevel2str[loglevel]);
+	va_start(arg, format);
+	vfprintf(outfp, format, arg);
+	va_end(arg);
+}
+
+/*
 void fatal(char *str)
 {
 	fprintf(stderr, "%s\n", str);
 	exit(EXIT_FAILURE);
 }
+*/
 
 /* wrapper of C functions */
 int eopen(const char *path, int flag)
@@ -19,19 +86,21 @@ int eopen(const char *path, int flag)
 	errno = 0;
 
 	if ((fd = open(path, flag)) < 0) {
-		fprintf(stderr, "cannot open \"%s\"\n", path);
-		error("open");
+		logging(ERROR, "cannot open \"%s\"\n", path);
+		logging(ERROR, "open: %s\n", strerror(errno));
 	}
-
 	return fd;
 }
 
-void eclose(int fd)
+int eclose(int fd)
 {
+	int ret = 0;
 	errno = 0;
 
-	if (close(fd) < 0)
-		error("close");
+	if ((ret = close(fd)) < 0)
+		logging(ERROR, "close: %s\n", strerror(errno));
+
+	return ret;
 }
 
 FILE *efopen(const char *path, char *mode)
@@ -40,19 +109,21 @@ FILE *efopen(const char *path, char *mode)
 	errno = 0;
 
 	if ((fp = fopen(path, mode)) == NULL) {
-		fprintf(stderr, "cannot open \"%s\"\n", path);
-		error("fopen");
+		logging(ERROR, "cannot open \"%s\"\n", path);
+		logging(ERROR, "fopen: %s\n", strerror(errno));
 	}
-
 	return fp;
 }
 
-void efclose(FILE *fp)
+int efclose(FILE *fp)
 {
+	int ret;
 	errno = 0;
 
-	if (fclose(fp) < 0)
-		error("fclose");
+	if ((ret = fclose(fp)) < 0)
+		logging(ERROR, "fclose: %s\n", strerror(errno));
+
+	return ret;
 }
 
 void *emmap(void *addr, size_t len, int prot, int flag, int fd, off_t offset)
@@ -61,17 +132,20 @@ void *emmap(void *addr, size_t len, int prot, int flag, int fd, off_t offset)
 	errno = 0;
 
 	if ((fp = (uint32_t *) mmap(addr, len, prot, flag, fd, offset)) == MAP_FAILED)
-		error("mmap");
+		logging(ERROR, "mmap: %s\n", strerror(errno));
 
 	return fp;
 }
 
-void emunmap(void *ptr, size_t len)
+int emunmap(void *ptr, size_t len)
 {
+	int ret;
 	errno = 0;
 
-	if (munmap(ptr, len) < 0)
-		error("munmap");
+	if ((ret = munmap(ptr, len)) < 0)
+		logging(ERROR, "munmap: %s\n", strerror(errno));
+
+	return ret;
 }
 
 void *ecalloc(size_t nmemb, size_t size)
@@ -80,7 +154,7 @@ void *ecalloc(size_t nmemb, size_t size)
 	errno = 0;
 
 	if ((ptr = calloc(nmemb, size)) == NULL)
-		error("calloc");
+		logging(ERROR, "calloc: %s\n", strerror(errno));
 
 	return ptr;
 }
@@ -92,7 +166,7 @@ long int estrtol(const char *nptr, char **endptr, int base)
 
 	ret = strtol(nptr, endptr, base);
 	if (ret == LONG_MIN || ret == LONG_MAX) {
-		perror("strtol");
+		logging(ERROR, "strtol: %s\n", strerror(errno));
 		return 0;
 	}
 
@@ -106,7 +180,7 @@ int estat(const char *restrict path, struct stat *restrict buf)
 	errno = 0;
 
 	if ((ret = stat(path, buf)) < 0)
-		error("stat");
+		logging(ERROR, "stat: %s\n", strerror(errno));
 
 	return ret;
 }
@@ -121,19 +195,19 @@ int str2num(char *str)
 	return estrtol(str, NULL, 10);
 }
 
-inline void swapint(int *a, int *b)
+static inline void swapint(int *a, int *b)
 {
 	int tmp = *a;
 	*a  = *b;
 	*b  = tmp;
 }
 
-inline int my_ceil(int val, int div)
+static inline int my_ceil(int val, int div)
 {
 	return (val + div - 1) / div;
 }
 
-inline uint32_t bit_reverse(uint32_t val, int bits)
+static inline uint32_t bit_reverse(uint32_t val, int bits)
 {
 	uint32_t ret = val;
 	int shift = bits - 1;
