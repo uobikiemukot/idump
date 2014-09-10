@@ -68,11 +68,12 @@ int main(int argc, char **argv)
 	struct image img;
 
 	/* open logfile */
-	if ((logfp = efopen(logfile, "a")) == NULL) {
+	/*
+	if ((logfp = efopen(logfile, "w")) == NULL)
 		logging(ERROR, "couldn't open log file\n");
-		return EXIT_FAILURE;
-	}
-	setvbuf(logfp, NULL, _IONBF, 0);
+	else
+		setvbuf(logfp, NULL, _IONBF, 0);
+	*/
 
 	/* check arg */
 	while ((opt = getopt(argc, argv, "hfr:")) != -1) {
@@ -97,17 +98,21 @@ int main(int argc, char **argv)
 	else
 		file = make_temp_file(temp_file);
 
-	if (file == NULL)
-		goto cleanup;
+	if (file == NULL) {
+		logging(FATAL, "input file not found\n");
+		return EXIT_FAILURE;
+	}
 
 	/* init */
-	fb_init(&fb);
+	if (!fb_init(&fb)) {
+		logging(FATAL, "fb_init() failed\n");
+		return EXIT_FAILURE;
+	}
+
 	init_image(&img);
 
-	if (load_image(file, &img) == false) {
-		free_image(&img);
+	if (!load_image(file, &img))
 		goto cleanup;
-	}
 
 	/* rotate/resize and draw */
 	/* TODO: support color reduction for 8bpp mode */
@@ -121,7 +126,7 @@ int main(int argc, char **argv)
 
 	/* cleanup resource */
 cleanup:
-	fclose(logfp);
+	//fclose(logfp);
 	free_image(&img);
 	fb_die(&fb);
 
