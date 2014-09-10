@@ -26,5 +26,8 @@ enum {
 	//MAX_ARGS         = 128,
 };
 
-static const char *logfile = "/tmp/idump.log";
+/*
+//static const char *logfile = "/tmp/idump.log";
+static const char *logfile = NULL;
 FILE *logfp = NULL;
+*/
