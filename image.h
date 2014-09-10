@@ -141,61 +141,6 @@ void resize_image(struct image *img, int disp_width, int disp_height)
 	img->data = resized_data;
 }
 
-#if 0
-void draw_image(struct framebuffer *fb, struct image *img)
-{
-	/* TODO: check [xy]_offset (alyway zero now) */
-	/* 14/06/08: offset removed */
-	int w, h, offset, size;
-	uint8_t r, g, b, *ptr;
-	uint32_t color;
-
-	for (h = 0; h < img->height; h++) {
-		if (h >= fb->height)
-			break;
-
-		for (w = 0; w < img->width; w++) {
-			if (w >= fb->width)
-				break;
-
-			ptr = img->data + img->channel * (h * img->width + w);
-			get_rgb(&r, &g, &b, ptr, img->channel);
-			color = get_color(&fb->vinfo, r, g, b);
-
-			/* update copy buffer */
-			offset = h * fb->line_length + w * fb->bytes_per_pixel;
-			memcpy(fb->buf + offset, &color, fb->bytes_per_pixel);
-		}
-		/* draw each scanline */
-		if (img->width < fb->width) {
-			offset = h * fb->line_length;
-			size = img->width * fb->bytes_per_pixel;
-			memcpy(fb->fp + offset, fb->buf + offset, size);
-		}
-	}
-	/* we can draw all image data at once! */
-	if (img->width >= fb->width) {
-		size = (img->height > fb->height) ? fb->height: img->height;
-		size *= fb->line_length;
-		memcpy(fb->fp, fb->buf, size);
-	}
-}
-
-void draw_anim_image(struct framebuffer *fb, struct image *img)
-{
-	unsigned int loop_count = 0;
-
-	/* ignore img->loopimg_count, force 1 loop  */
-	while (loop_count < img->frame_count) {
-		img->data = img->anim[loop_count];
-		draw_image(fb, img);
-		usleep(img->delay[loop_count] * 10000); /* gif delay 1 == 1/100 sec */
-		loop_count++;
-	}
-	img->data = NULL;
-}
-#endif
-
 void draw_single(struct framebuffer *fb, struct image *img,
 	int offset_x, int offset_y, int shift_x, int shift_y, int width, int height)
 {
@@ -235,17 +180,23 @@ void draw_single(struct framebuffer *fb, struct image *img,
 }
 
 void draw_anim(struct framebuffer *fb, struct image *img,
-	int offset_x, int offset_y, int shift_x, int shift_y, int width, int height)
+	int offset_x, int offset_y, int shift_x, int shift_y, int width, int height, bool enable_anim)
 {
 	unsigned int loop_count = 0;
 
-	/* ignore img->loopimg_count, force 1 loop  */
-	while (loop_count < img->frame_count) {
-		img->data = img->anim[loop_count];
+	if (enable_anim) { /* ignore img->loop_count, force 1 loop  */
+		while (loop_count < img->frame_count) {
+			img->data = img->anim[loop_count];
+			draw_single(fb, img, offset_x, offset_y, shift_x, shift_y, width, height);
+			usleep(img->delay[loop_count] * 10000); /* gif delay 1 == 1/100 sec */
+			loop_count++;
+		}
+	} else {           /* draw img->current_frame only */
+		img->data = img->anim[img->current_frame % img->frame_count];
 		draw_single(fb, img, offset_x, offset_y, shift_x, shift_y, width, height);
-		usleep(img->delay[loop_count] * 10000); /* gif delay 1 == 1/100 sec */
-		loop_count++;
 	}
+
+	/* must be reset pointer to avoid double free */
 	img->data = NULL;
 }
 
@@ -291,7 +242,9 @@ void draw_image(struct framebuffer *fb, struct image *img,
 		height = fb->height - offset_y;
 
 	if (enable_anim && img->anim)
-		draw_anim(fb, img, offset_x, offset_y, shift_x, shift_y, width, height);
-	else
 		draw_single(fb, img, offset_x, offset_y, shift_x, shift_y, width, height);
+	else if (img->data)
+		draw_anim(fb, img, offset_x, offset_y, shift_x, shift_y, width, height, enable_anim);
+	else
+		logging(ERROR, "img->anim and img->data are NULL\n");
 }
