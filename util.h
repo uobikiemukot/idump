@@ -51,7 +51,7 @@ enum loglevel {
 void logging(int loglevel, char *format, ...)
 {
 	va_list arg;
-	FILE *outfp;
+	//FILE *outfp;
 
 	static const char *loglevel2str[] = {
 		[DEBUG] = "DEBUG",
@@ -63,11 +63,11 @@ void logging(int loglevel, char *format, ...)
 	if (loglevel == DEBUG && !VERBOSE)
 		return;
 
-	outfp = (logfp == NULL) ? stderr: logfp;
+	//outfp = (logfp == NULL) ? stderr: logfp;
 
-	fprintf(outfp, ">>%s<<\t", loglevel2str[loglevel]);
+	fprintf(stderr, ">>%s<<\t", loglevel2str[loglevel]);
 	va_start(arg, format);
-	vfprintf(outfp, format, arg);
+	vfprintf(stderr, format, arg);
 	va_end(arg);
 }
 
