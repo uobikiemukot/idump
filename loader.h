@@ -200,6 +200,25 @@ bool load_png(FILE *fp, struct image *img)
 }
 
 /* libns{gif,bmp} functions */
+unsigned char *file_into_memory(FILE *fp, size_t *data_size)
+{
+	unsigned char *buffer;
+	size_t n, size;
+
+	fseek(fp, 0L, SEEK_END);
+	size = ftell(fp);
+
+	buffer = ecalloc(1, size);
+	fseek(fp, 0L, SEEK_SET);
+	if ((n = fread(buffer, 1, size, fp)) != size) {
+		free(buffer);
+		return NULL;
+	}
+	*data_size = size;
+
+	return buffer;
+}
+
 void *gif_bitmap_create(int width, int height)
 {
 	return calloc(width * height, BYTES_PER_PIXEL);
@@ -233,47 +252,6 @@ void gif_bitmap_modified(void *bitmap)
 	return;
 }
 
-void *bmp_bitmap_create(int width, int height, unsigned int state)
-{
-	(void) state; /* unused */
-	return calloc(width * height, BYTES_PER_PIXEL);
-}
-
-unsigned char *bmp_bitmap_get_buffer(void *bitmap)
-{
-	return bitmap;
-}
-
-void bmp_bitmap_destroy(void *bitmap)
-{
-	free(bitmap);
-}
-
-size_t bmp_bitmap_get_bpp(void *bitmap)
-{
-	(void) bitmap; /* unused */
-	return BYTES_PER_PIXEL;
-}
-
-unsigned char *file_into_memory(FILE *fp, size_t *data_size)
-{
-	unsigned char *buffer;
-	size_t n, size;
-
-	fseek(fp, 0L, SEEK_END);
-	size = ftell(fp);
-
-	buffer = ecalloc(1, size);
-	fseek(fp, 0L, SEEK_SET);
-	if ((n = fread(buffer, 1, size, fp)) != size) {
-		free(buffer);
-		return NULL;
-	}
-	*data_size = size;
-
-	return buffer;
-}
-
 bool load_gif(FILE *fp, struct image *img)
 {
 	gif_bitmap_callback_vt gif_callbacks = {
@@ -303,6 +281,9 @@ bool load_gif(FILE *fp, struct image *img)
 	img->channel = BYTES_PER_PIXEL;
 	size = img->width * img->height * img->channel;
 
+	img->frame_count = gif.frame_count;
+	img->loop_count = gif.loop_count;
+
 	/* read animation gif */
 	img->anim  = (uint8_t **) ecalloc(gif.frame_count, sizeof(uint8_t *));
 	img->delay = (unsigned int *) ecalloc(gif.frame_count, sizeof(unsigned int));
@@ -317,21 +298,46 @@ bool load_gif(FILE *fp, struct image *img)
 
 		img->delay[i] = gif.frames[i].frame_delay;
 	}
-	img->frame_count = gif.frame_count;
-	img->loop_count = gif.loop_count;
 
 	gif_finalise(&gif);
 	free(mem);
 	return true;
 
 error_anim_decode_failed:
+	/* memory cleanup by free_image()
 	for (i = 0; i < gif.frame_count; i++)
-		free(img->anim[i]);
+		if (img->anim[i])
+			free(img->anim[i]);
 	free(img->anim);
+	*/
+	//logging(ERROR, "gif anim decode failed\n");
 	gif_finalise(&gif);
 error_initialize_failed:
+	//logging(ERROR, "gif  initialize failed\n");
 	free(mem);
 	return false;
+}
+
+void *bmp_bitmap_create(int width, int height, unsigned int state)
+{
+	(void) state; /* unused */
+	return calloc(width * height, BYTES_PER_PIXEL);
+}
+
+unsigned char *bmp_bitmap_get_buffer(void *bitmap)
+{
+	return bitmap;
+}
+
+void bmp_bitmap_destroy(void *bitmap)
+{
+	free(bitmap);
+}
+
+size_t bmp_bitmap_get_bpp(void *bitmap)
+{
+	(void) bitmap; /* unused */
+	return BYTES_PER_PIXEL;
 }
 
 bool load_bmp(FILE *fp, struct image *img)
@@ -478,16 +484,18 @@ void init_image(struct image *img)
 
 void free_image(struct image *img)
 {
-	unsigned int i;
-
-	if (img->data != NULL)
-		free(img->data);
-
 	if (img->anim) {
-		for (i = 0; i < img->frame_count; i++)
-			free(img->anim[i]);
+		for (unsigned int i = 0; i < img->frame_count; i++) {
+			//logging(DEBUG, "free: img->anim[%d] addr:%p\n", i, img->anim[i]);
+			if (img->anim[i])
+				free(img->anim[i]);
+		}
+		if (img->delay)
+			free(img->delay);
 		free(img->anim);
-		free(img->delay);
+	} else {
+		if (img->data)
+			free(img->data);
 	}
 }
 
@@ -556,16 +564,18 @@ bool load_image(const char *file, struct image *img)
 		logging(DEBUG, "image width:%d height:%d channel:%d alpha:%s\n",
 			img->width, img->height, img->channel, (img->alpha) ? "true": "false");
 		if (img->anim) {
-			logging(DEBUG, "frame:%d loop:%d ", img->frame_count, img->loop_count);
-			for (i = 0; i < img->frame_count; i++)
-				logging(DEBUG, "delay[%u]:%u ", i, img->delay[i]);
-			logging(DEBUG, "\n");
+			logging(DEBUG, "frame:%d loop:%d\n", img->frame_count, img->loop_count);
+			for (i = 0; i < img->frame_count; i++) {
+				logging(DEBUG, "anim[%u]:%p\n", i, img->anim[i]);
+				logging(DEBUG, "delay[%u]:%u\n", i, img->delay[i]);
+			}
 		}
 		efclose(fp);
 		return true;
 	}
 
 	logging(ERROR, "image load error: %s\n", file);
+	init_image(img);
 	efclose(fp);
 	return false;
 }
