@@ -242,9 +242,9 @@ void draw_image(struct framebuffer *fb, struct image *img,
 		height = fb->height - offset_y;
 
 	if (enable_anim && img->anim)
-		draw_single(fb, img, offset_x, offset_y, shift_x, shift_y, width, height);
-	else if (img->data)
 		draw_anim(fb, img, offset_x, offset_y, shift_x, shift_y, width, height, enable_anim);
+	else if (img->data)
+		draw_single(fb, img, offset_x, offset_y, shift_x, shift_y, width, height);
 	else
 		logging(ERROR, "img->anim and img->data are NULL\n");
 }
