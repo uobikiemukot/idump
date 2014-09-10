@@ -36,5 +36,7 @@ enum w3m_op {
 	NUM_OF_W3M_FUNC,
 };
 
+/*
 static const char *logfile = "/tmp/yaimgfb.log";
 FILE *logfp = NULL;
+*/

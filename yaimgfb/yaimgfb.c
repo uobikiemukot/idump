@@ -28,11 +28,6 @@ void w3m_draw(struct framebuffer *fb, struct image imgs[], struct parm_t *parm, 
 	view_h    = str2num(parm->argv[9]);
 	file      = parm->argv[10];
 
-	/*
-	(void) sw;
-	(void) sh;
-	*/
-
 	if (index < 0)
 		index = 0;
 	else if (index >= MAX_IMAGE)
@@ -43,8 +38,10 @@ void w3m_draw(struct framebuffer *fb, struct image imgs[], struct parm_t *parm, 
 		index, offset_x, offset_y, shift_x, shift_y, view_w, view_h);
 
 	if (op == W3M_DRAW) {
-		free_image(img);
-		init_image(img);
+		if (img->data || img->anim) { /* cleanup preloaded image */
+			free_image(img);
+			init_image(img);
+		}
 		if (load_image(file, img) == false)
 			return;
 	}
@@ -53,12 +50,6 @@ void w3m_draw(struct framebuffer *fb, struct image imgs[], struct parm_t *parm, 
 		logging(ERROR, "specify unloaded image? img[%d] is empty.\n", index);
 		return;
 	}
-
-	/* must be (width == img->width) && (height == img->height) */
-	/*
-	assert(width == img->width);
-	assert(height == img->height);
-	*/
 
 	if (img->anim) {
 		img->data = img->anim[img->current_frame % img->frame_count];
@@ -73,48 +64,10 @@ void w3m_draw(struct framebuffer *fb, struct image imgs[], struct parm_t *parm, 
 
 	draw_image(fb, img, offset_x, offset_y, shift_x, shift_y,
 		(view_w ? view_w: width), (view_h ? view_h: height), false);
-	/*
-	int w, h, offset_fb, offset_img, img_stride;
-	uint8_t r, g, b;
-	uint32_t color;
-	unsigned char *ptr;
 
-	if (ip->anim) {
-		ip->data = ip->anim[0];
-		assert(ip->data);
-	} else if (ip->data == NULL) {
-		logging(ERROR, "data == NULL\n");
-		return;
-	}
-
-	if (sx + width > ip->width)
-		width = ip->width - sx;
-	
-	if (sy + height > ip->height)
-		height = ip->height - sy;
-
-	if (offset_x + width > fb->width)
-		width = fb->width - offset_x;
-
-	if (offset_y + height > fb->height)
-		height = fb->height - offset_y;
-
-	img_stride = ip->width * ip->channel;
-	offset_fb  = offset_y * fb->line_length + offset_x * fb->bpp;
-	offset_img = sy * img_stride + sx * ip->channel;
-
-	for (h = 0; h < height; h++) {
-		for (w = 0; w < width; w++) {
-			ptr = ip->data + offset_img + w * ip->channel;
-			get_rgb(&r, &g, &b, ptr, ip->channel);
-			color = get_color(&fb->vinfo, r, g, b);
-			memcpy(fb->buf + offset_fb + w * fb->bpp, &color, fb->bpp);
-		}
-		memcpy(fb->fp + offset_fb, fb->buf + offset_fb, width * fb->bpp);
-		offset_fb  += fb->line_length;
-		offset_img += img_stride;
-	}
-	*/
+	/* must be reset pointer to avoid double free */
+	if (img->anim)
+		img->data = NULL;
 }
 
 void w3m_stop()
@@ -130,27 +83,22 @@ void w3m_sync()
 void w3m_nop()
 {
 	logging(DEBUG, "w3m_nop()\n");
-
 	printf("\n");
-	//fflush(stdout);
 }
 
 void w3m_getsize(struct image *img, const char *file)
 {
 	logging(DEBUG, "w3m_getsize()\n");
 
-	/*
-	if (parm->argc != 2) 
-		return;
-	*/
+	if (img->data || img->anim) { /* cleanup preloaded image */
+		free_image(img);
+		init_image(img);
+	}
 
-	free_image(img);
-	init_image(img);
 	if (load_image(file, img))
 		printf("%d %d\n", img->width, img->height);
 	else
 		printf("0 0\n");
-	//fflush(stdout);
 }
 
 void w3m_clear(struct image img[], struct parm_t *parm)
@@ -173,7 +121,6 @@ void w3m_clear(struct image img[], struct parm_t *parm)
 	(void) height;
 
 	(void) img;
-	//clear_images(img);
 }
 
 /*
@@ -231,16 +178,16 @@ int main(int argc, char *argv[])
 	struct image img[MAX_IMAGE];
 	struct parm_t parm;
 
-	/*
 	stderr = freopen("/tmp/w3mimg.log", "w", stderr);
 	setvbuf(stderr, NULL, _IONBF, 0);
-	*/
-	if ((logfp = efopen(logfile, "a")) == NULL) {
+	setvbuf(stdout, NULL, _IONBF, 0);
+	/*
+	if ((logfp = efopen(logfile, "w")) == NULL) {
 		logging(ERROR, "couldn't open log file\n");
 		return EXIT_FAILURE;
 	}
 	setvbuf(logfp, NULL, _IONBF, 0);
-	setvbuf(stdout, NULL, _IONBF, 0);
+	*/
 
 	logging(DEBUG, "--- new instance ---\n");
 	for (i = 0; i < argc; i++)
@@ -248,13 +195,13 @@ int main(int argc, char *argv[])
 	logging(DEBUG, "argc:%d\n", argc);
 
 	/* init */
+	for (i = 0; i < MAX_IMAGE; i++)
+		init_image(&img[i]);
+
 	if (!fb_init(&fb)) {
 		logging(ERROR, "framebuffer initialize failed\n");
 		return EXIT_FAILURE;
 	}
-
-	for (i = 0; i < MAX_IMAGE; i++)
-		init_image(&img[i]);
 
 	/* check args */
 	optind = 1;
@@ -277,11 +224,6 @@ int main(int argc, char *argv[])
 			continue;
 		}
 		*cp = '\0';
-		/*
-		int length;
-		length = strlen(buf);
-		buf[length - 1] = '\0'; // chomp '\n'
-		*/
 
 		logging(DEBUG, "stdin: %s\n", buf);
 
@@ -320,8 +262,6 @@ int main(int argc, char *argv[])
 			default:
 				break;
 		}
-
-		//fflush(stderr);
     }
 
 	/* release */
@@ -331,6 +271,7 @@ release:
 	fb_die(&fb);
 
 	logging(DEBUG, "exiting...\n");
+	//fclose(logfp);
 
 	return EXIT_SUCCESS;
 }
