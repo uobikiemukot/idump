@@ -221,8 +221,10 @@ bool fb_init(struct framebuffer *fb)
 	else
 		fb->fd = eopen(fb_path, O_RDWR);
 
-	if (fb->fd < 0)
+	if (fb->fd < 0) {
+		logging(ERROR, "couldn't open framebuffer device\n");
 		return false;
+	}
 
 	if (ioctl(fb->fd, FBIOGET_FSCREENINFO, &finfo)) {
 		logging(ERROR, "ioctl: FBIOGET_FSCREENINFO failed\n");
