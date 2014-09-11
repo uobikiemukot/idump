@@ -6,7 +6,6 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <linux/fb.h>
-#include <setjmp.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -18,22 +17,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <sixel.h>
+
 enum {
-	VERBOSE   = true,
+	VERBOSE   = false,
 	BUFSIZE   = 1024,
 	MULTIPLER = 1024,
-	MAX_IMAGE = 1024,
-};
-
-enum w3m_op {
-	W3M_DRAW = 0,
-	W3M_REDRAW,
-	W3M_STOP,
-	W3M_SYNC,
-	W3M_NOP,
-	W3M_GETSIZE,
-	W3M_CLEAR,
-	NUM_OF_W3M_FUNC,
 };
 
 /* error functions */
@@ -66,14 +55,6 @@ void logging(int loglevel, char *format, ...)
 	vfprintf(stderr, format, arg);
 	va_end(arg);
 }
-
-/*
-void fatal(char *str)
-{
-	fprintf(stderr, "%s\n", str);
-	exit(EXIT_FAILURE);
-}
-*/
 
 /* wrapper of C functions */
 int eopen(const char *path, int flag)
@@ -169,19 +150,6 @@ long int estrtol(const char *nptr, char **endptr, int base)
 	return ret;
 }
 
-/*
-int estat(const char *restrict path, struct stat *restrict buf)
-{
-	int ret;
-	errno = 0;
-
-	if ((ret = stat(path, buf)) < 0)
-		logging(ERROR, "stat: %s\n", strerror(errno));
-
-	return ret;
-}
-*/
-
 /* some useful functions */
 int str2num(char *str)
 {
@@ -215,73 +183,6 @@ static inline uint32_t bit_reverse(uint32_t val, int bits)
 	}
 
 	return ret <<= shift;
-}
-
-enum {
-	MAX_ARGS         = 128,
-};
-
-struct parm_t { /* for parse_arg() */
-	int argc;
-	char *argv[MAX_ARGS];
-};
-
-/* parse_arg functions */
-void reset_parm(struct parm_t *pt)
-{
-	int i;
-
-	pt->argc = 0;
-	for (i = 0; i < MAX_ARGS; i++)
-		pt->argv[i] = NULL;
-}
-
-void add_parm(struct parm_t *pt, char *cp)
-{
-	if (pt->argc >= MAX_ARGS)
-		return;
-
-	logging(DEBUG, "argv[%d]: %s\n",
-		pt->argc, (cp == NULL) ? "NULL": cp);
-
-	pt->argv[pt->argc] = cp;
-	pt->argc++;
-}
-
-void parse_arg(char *buf, struct parm_t *pt, int delim, int (is_valid)(int c))
-{
-    /*
-        v..........v d           v.....v d v.....v ... d
-        (valid char) (delimiter)
-        argv[0]                  argv[1]   argv[2] ...   argv[argc - 1]
-    */
-	int i, length;
-	char *cp, *vp;
-
-	if (buf == NULL)
-		return;
-
-	length = strlen(buf);
-	logging(DEBUG, "parse_arg() buf length:%d\n", length);
-
-	vp = NULL;
-	for (i = 0; i < length; i++) {
-		cp = &buf[i];
-
-		if (vp == NULL && is_valid(*cp))
-			vp = cp;
-
-		if (*cp == delim) {
-			*cp = '\0';
-			add_parm(pt, vp);
-			vp = NULL;
-		}
-
-		if (i == (length - 1) && (vp != NULL || *cp == '\0'))
-			add_parm(pt, vp);
-	}
-
-	logging(DEBUG, "argc:%d\n", pt->argc);
 }
 
 const char *fb_path = "/dev/fb0";
@@ -535,14 +436,6 @@ bool fb_init(struct framebuffer *fb, bool init_cmap)
 		logging(ERROR, "ioctl: FBIOGET_VSCREENINFO failed\n");
 		goto err_init_failed;
 	}
-
-	/* check screen offset and initialize because linux console change this */
-	/*
-	if (vinfo.xoffset != 0 || vinfo.yoffset != 0) {
-		vinfo.xoffset = vinfo.yoffset = 0;
-		ioctl(fb->fd, FBIOPUT_VSCREENINFO, &vinfo);
-	}
-	*/
 
 	fb->width = vinfo.xres;
 	fb->height = vinfo.yres;
@@ -1011,7 +904,7 @@ bool load_image(const char *file, struct image *img)
 	if ((fp = efopen(file, "r")) == NULL)
 		return false;
  
-	if ((type = check_filetype(fp)) == TYPE_UNKNOWN) {
+ 	if ((type = check_filetype(fp)) == TYPE_UNKNOWN) {
 		logging(ERROR, "unknown file type: %s\n", file);
 		goto image_load_error;
 	}
@@ -1388,257 +1281,185 @@ void draw_image(struct framebuffer *fb, struct image *img,
 	}
 }
 
-void w3m_draw(struct framebuffer *fb, struct image imgs[], struct parm_t *parm, int op)
-{
-	int index, offset_x, offset_y, width, height, shift_x, shift_y, view_w, view_h;
-	char *file;
-	struct image *img;
+char temp_file[] = "/tmp/sdump.XXXXXX";
 
-	logging(DEBUG, "w3m_%s()\n", (op == W3M_DRAW) ? "draw": "redraw");
-
-	if (parm->argc != 11)
-		return;
-
-	index     = str2num(parm->argv[1]) - 1; /* 1 origin */
-	offset_x  = str2num(parm->argv[2]);
-	offset_y  = str2num(parm->argv[3]);
-	width     = str2num(parm->argv[4]);
-	height    = str2num(parm->argv[5]);
-	shift_x   = str2num(parm->argv[6]);
-	shift_y   = str2num(parm->argv[7]);
-	view_w    = str2num(parm->argv[8]);
-	view_h    = str2num(parm->argv[9]);
-	file      = parm->argv[10];
-
-	if (index < 0)
-		index = 0;
-	else if (index >= MAX_IMAGE)
-		index = MAX_IMAGE - 1;
-	img = &imgs[index];
-
-	logging(DEBUG, "index:%d offset_x:%d offset_y:%d shift_x:%d shift_y:%d view_w:%d view_h:%d\n",
-		index, offset_x, offset_y, shift_x, shift_y, view_w, view_h);
-
-	if (op == W3M_DRAW) {
-		if (get_current_frame(img)) { /* cleanup preloaded image */
-			free_image(img);
-			init_image(img);
-		}
-		if (load_image(file, img) == false)
-			return;
-	}
-
-	if (!get_current_frame(img)) {
-		logging(ERROR, "specify unloaded image? img[%d] is NULL\n", index);
-		return;
-	}
-	increment_frame(img);
-
-	/* XXX: maybe need to resize at this time */
-	if (width != get_image_width(img) || height != get_image_height(img))
-		resize_image(img, width, height, true);
-
-	draw_image(fb, img, offset_x, offset_y, shift_x, shift_y,
-		(view_w ? view_w: width), (view_h ? view_h: height), false);
-}
-
-void w3m_stop()
-{
-	logging(DEBUG, "w3m_stop()\n");
-}
-
-void w3m_sync()
-{
-	logging(DEBUG, "w3m_sync()\n");
-}
-
-void w3m_nop()
-{
-	logging(DEBUG, "w3m_nop()\n");
-	printf("\n");
-}
-
-void w3m_getsize(struct image *img, const char *file)
-{
-	logging(DEBUG, "w3m_getsize()\n");
-
-	if (get_current_frame(img)) { /* cleanup preloaded image */
-		free_image(img);
-		init_image(img);
-	}
-
-	if (load_image(file, img))
-		printf("%d %d\n", get_image_width(img), get_image_height(img));
-	else
-		printf("0 0\n");
-}
-
-void w3m_clear(struct image img[], struct parm_t *parm)
-{
-	int offset_x, offset_y, width, height;
-
-	logging(DEBUG, "w3m_clear()\n");
-
-	/*
-	if (parm->argc != 5)
-		return;
-
-	offset_x  = str2num(parm->argv[1]);
-	offset_y  = str2num(parm->argv[2]);
-	width     = str2num(parm->argv[3]);
-	height    = str2num(parm->argv[4]);
-	*/
-
-	(void) img;
-	(void) parm;
-
-	(void) offset_x;
-	(void) offset_y;
-	(void) width;
-	(void) height;
-
-}
-
-/*
-void (*w3m_func[NUM_OF_W3M_FUNC])(struct framebuffer *fb, struct image img[], struct parm_t *parm, int op) = {
-	[W3M_DRAW]    = w3m_draw,
-	[W3M_REDRAW]  = w3m_draw,
-	[W3M_STOP]    = w3m_stop,
-	[W3M_SYNC]    = w3m_sync,
-	[W3M_NOP]     = w3m_nop,
-	[W3M_GETSIZE] = w3m_getsize,
-	[W3M_CLEAR]   = w3m_clear,
+enum {
+	SIXEL_COLORS = 256,
+	SIXEL_BPP    = 3,
 };
-*/
 
-int main(int argc, char *argv[])
+void usage()
+{
+	printf("idump [-h] [-f] [-r angle] image\n"
+		"-h: show this help\n"
+		"-f: fit image to display\n"
+		"-r: rotate image (90/180/270)\n"
+		);
+}
+
+void remove_temp_file()
+{
+	extern char temp_file[]; /* global */
+	remove(temp_file);
+}
+
+char *make_temp_file(char *template)
+{
+	int fd;
+	ssize_t size, file_size = 0;
+	char buf[BUFSIZE];
+	errno = 0;
+
+	if ((fd = mkstemp(template)) < 0) {
+		perror("mkstemp");
+		return NULL;
+	}
+	logging(DEBUG, "tmp file:%s\n", template);
+
+	/* register cleanup function */
+	if (atexit(remove_temp_file) != 0)
+		logging(ERROR, "atexit() failed\nmaybe temporary file remains...\n");
+
+	if (fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK) == -1)
+		fprintf(stderr, "couldn't set O_NONBLOCK flag\n");
+
+	while ((size = read(STDIN_FILENO, buf, BUFSIZE)) > 0) {
+		write(fd, buf, size);
+		file_size += size;
+	}
+	eclose(fd);
+
+	if (file_size == 0) {
+		fprintf(stderr, "stdin is empty\n");
+		usage();
+		return NULL;
+	}
+
+	return template;
+}
+
+int sixel_write_callback(char *data, int size, void *priv)
 {
 	/*
-	command line option
-	  -bg    : background color (for transparent image?)
-	  -x     : image position offset x
-	  -y     : image position offset x
-	  -test  : request display size (response "width height\n")
-	  -size  : request image size  (response "width height\n")
-	  -anim  : number of max frame of animation image?
-	  -margin: margin of clear region?
-	  -debug : debug flag (not used)
-	*/
-	/*
-	w3mimg protocol
-	  0  1  2 ....
-	 +--+--+--+--+ ...... +--+--+
-	 |op|; |args             |\n|
-	 +--+--+--+--+ .......+--+--+
+	for (int i = 0; i < size; i++) {
+		if (i == (size - 1))
+			break;
 
-	 args is separeted by ';'
-	 op   args
-	  0;  params    draw image
-	  1;  params    redraw image
-	  2;  -none-    terminate drawing
-	  3;  -none-    sync drawing
-	  4;  -none-    nop, sync communication
-	                response '\n'
-	  5;  path      get size of image,
-	                response "<width> <height>\n"
-	  6;  params(6) clear image
+		if (*(data + i) == 0x1B && *(data + i + 1) == 0x5C) {
+			fprintf((FILE *) priv, "\033\033\\\033P\\");
+			break;
+		} else {
+			fwrite(data + i, 1, 1, fp);
+		}
+	}
 
-	  params
-	   <n>;<x>;<y>;<w>;<h>;<sx>;<sy>;<sw>;<sh>;<path>
-	  params(6)
-	   <x>;<y>;<w>;<h>
+	logging(DEBUG, "write callback() size:%d\n", size);
+	return size;
 	*/
-	int i, op, optind;
-	char buf[BUFSIZE], *cp;
+	return fwrite(data, size, 1, (FILE *) priv);
+}
+
+int main(int argc, char **argv)
+{
+	extern char temp_file[]; /* global */
+	char *file;
+	bool resize = false;
+	int angle = 0, opt;
 	struct framebuffer fb;
-	struct image img[MAX_IMAGE];
-	struct parm_t parm;
+	struct image img;
+	sixel_output_t *sixel_context = NULL;
+	sixel_dither_t *sixel_dither = NULL;
 
-	stderr = freopen("/tmp/yaimgfb.log", "w", stderr);
-	setvbuf(stderr, NULL, _IONBF, 0);
-	setvbuf(stdout, NULL, _IONBF, 0);
+	/* check arg */
+	while ((opt = getopt(argc, argv, "hfr:")) != -1) {
+		switch (opt) {
+		case 'h':
+			usage();
+			return EXIT_SUCCESS;
+		case 'f':
+			resize = true;
+			break;
+		case 'r':
+			angle = str2num(optarg);
+			break;
+		default:
+			break;
+		}
+	}
 
-	logging(DEBUG, "--- new instance ---\n");
-	for (i = 0; i < argc; i++)
-		logging(DEBUG, "argv[%d]:%s\n", i, argv[i]);
-	logging(DEBUG, "argc:%d\n", argc);
+	/* open file */
+	if (optind < argc)
+		file = argv[optind];
+	else
+		file = make_temp_file(temp_file);
 
-	/* init */
-	for (i = 0; i < MAX_IMAGE; i++)
-		init_image(&img[i]);
-
-	if (!fb_init(&fb, false)) {
-		logging(ERROR, "framebuffer initialize failed\n");
+	if (file == NULL) {
+		logging(FATAL, "input file not found\n");
 		return EXIT_FAILURE;
 	}
 
-	/* check args */
-	optind = 1;
-	while (optind < argc) {
-		if (strncmp(argv[optind], "-test", 5) == 0) {
-			printf("%d %d\n", fb.width, fb.height);
-			goto release;
-		}
-		else if (strncmp(argv[optind], "-size", 5) == 0 && ++optind < argc) {
-			w3m_getsize(&img[0], argv[optind]);
-			goto release;
-		}
-		optind++;
+	/* init */
+	if (!fb_init(&fb, false)) {
+		logging(FATAL, "fb_init() failed\n");
+		return EXIT_FAILURE;
+	}
+	init_image(&img);
+
+	if (load_image(file, &img) == false)
+		goto cleanup;
+
+	/* rotate/resize and draw */
+	/* TODO: support color reduction for 8bpp mode */
+	if (angle != 0)
+		rotate_image(&img, angle, true);
+
+	if (resize)
+		resize_image(&img, fb.width, fb.height, true);
+
+	/* sixel */
+	/* XXX: libsixel only allows 3 bytes per pixel image,
+		we should convert bpp when bpp is 1 or 2 or 4 */
+	if (get_image_channel(&img) != SIXEL_BPP)
+		normalize_bpp(&img, SIXEL_BPP, true);
+
+	if ((sixel_dither = sixel_dither_create(SIXEL_COLORS)) == NULL) {
+		logging(ERROR, "couldn't create dither\n");
+		goto cleanup;
 	}
 
-	/* main loop */
-    while (fgets(buf, BUFSIZE, stdin) != NULL) {
-		if ((cp = strchr(buf, '\n')) == NULL) {
-			logging(ERROR, "lbuf overflow? (couldn't find newline) buf length:%d\n", strlen(buf));
-			continue;
-		}
-		*cp = '\0';
+	/* XXX: use first frame for dither initialize */
+	if (sixel_dither_initialize(sixel_dither, get_current_frame(&img), get_image_width(&img), get_image_height(&img),
+		SIXEL_BPP, LARGE_AUTO, REP_AUTO, QUALITY_AUTO) != 0) {
+		logging(ERROR, "couldn't initialize dither\n");
+		sixel_dither_unref(sixel_dither);
+		goto cleanup;
+	}
+	sixel_dither_set_diffusion_type(sixel_dither, DIFFUSE_AUTO);
 
-		logging(DEBUG, "stdin: %s\n", buf);
+	if ((sixel_context = sixel_output_create(sixel_write_callback, stdout)) == NULL) {
+		logging(ERROR, "couldn't create sixel context\n");
+		goto cleanup;
+	}
+	sixel_output_set_8bit_availability(sixel_context, CSIZE_7BIT);
 
-		reset_parm(&parm);
-		parse_arg(buf, &parm, ';', isgraph);
+	//printf("\033[s"); /* save cursor position (SCO) */
+	printf("\0337"); /* save cursor position */
+	for (int i = 0; i < get_frame_count(&img); i++) {
+		//printf("\033[u"); /* restore cursor position (SCO) */
+		printf("\0338"); /* restore cursor position */
+		sixel_encode(get_current_frame(&img), get_image_width(&img), get_image_height(&img), get_image_channel(&img), sixel_dither, sixel_context);
+		usleep(get_current_delay(&img) * 10000); /* gif delay 1 == 1/100 sec */
+		increment_frame(&img);
+	}
 
-		if (parm.argc <= 0)
-			continue;
-
-		op = str2num(parm.argv[0]);
-		if (op < 0 || op >= NUM_OF_W3M_FUNC)
-			continue;
-
-		switch (op) {
-			case W3M_DRAW:
-			case W3M_REDRAW:
-				w3m_draw(&fb, img, &parm, op);
-				break;
-			case W3M_STOP:
-				w3m_stop();
-				break;
-			case W3M_SYNC:
-				w3m_sync();
-				break;
-			case W3M_NOP:
-				w3m_nop();
-				break;
-			case W3M_GETSIZE:
-				if (parm.argc != 2) 
-					break;
-				w3m_getsize(&img[0], parm.argv[1]);
-				break;
-			case W3M_CLEAR:
-				w3m_clear(img, &parm);
-				break;
-			default:
-				break;
-		}
-    }
-
-	/* release */
-release:
-	for (i = 0; i < MAX_IMAGE; i++)
-		free_image(&img[i]);
+	/* cleanup resource */
+cleanup:
+	if (sixel_dither)
+		sixel_dither_unref(sixel_dither);
+	if (sixel_context)
+		sixel_output_unref(sixel_context);
+	free_image(&img);
 	fb_die(&fb);
-	logging(DEBUG, "exiting...\n");
 
 	return EXIT_SUCCESS;
 }
