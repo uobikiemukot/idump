@@ -557,7 +557,7 @@ bool load_image(const char *file, struct image *img)
  
 	if ((type = check_filetype(fp)) == TYPE_UNKNOWN) {
 		logging(ERROR, "unknown file type: %s\n", file);
-		return false;
+		goto image_load_error;
 	}
 
 	if (loader[type](fp, img)) {
@@ -573,6 +573,7 @@ bool load_image(const char *file, struct image *img)
 		return true;
 	}
 
+image_load_error:
 	logging(ERROR, "image load error: %s\n", file);
 	//init_image(img);
 	efclose(fp);
