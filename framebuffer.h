@@ -148,22 +148,21 @@ bool cmap_init(struct framebuffer *fb, struct fb_var_screeninfo *vinfo)
 void draw_cmap_table(struct framebuffer *fb)
 {
 	/* for debug */
-	uint32_t c;
-	int h, w, h_offset = 0, w_offset;
+	int y_offset = 0, x_offset;
 	enum {
 		CELL_WIDTH = 8,
 		CELL_HEIGHT = 16
 	};
 
-	for (c = 0; c < CMAP_COLORS; c++) {
-		h_offset = (int) (c / 32) * CELL_HEIGHT;
-		w_offset = (c % 32);
+	for (int c = 0; c < CMAP_COLORS; c++) {
+		y_offset = (int) (c / 32) * CELL_HEIGHT;
+		x_offset = (c % 32);
 
-		for (h = 0; h < CELL_HEIGHT; h++) {
-			for (w = 0; w < CELL_WIDTH; w++) {
+		for (int y = 0; y < CELL_HEIGHT; y++) {
+			for (int x = 0; x < CELL_WIDTH; x++) {
 				/* BUG: this memcpy is invalid, may fail at 24bpp and MSByte first env */
-				memcpy(fb->fp + (CELL_WIDTH * w_offset + w) * fb->bytes_per_pixel
-					+ (h + h_offset) * fb->line_length, &c, fb->bytes_per_pixel);
+				memcpy(fb->fp + (CELL_WIDTH * x_offset + x) * fb->bytes_per_pixel
+					+ (y + y_offset) * fb->line_length, &c, fb->bytes_per_pixel);
 			}
 		}
 	}
