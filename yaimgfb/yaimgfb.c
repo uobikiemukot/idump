@@ -53,8 +53,6 @@ void w3m_draw(struct framebuffer *fb, struct image imgs[], struct parm_t *parm, 
 	increment_frame(img);
 
 	/* XXX: maybe need to resize at this time */
-	logging(DEBUG, "width:%d height:%d img.width:%d img.height:%d\n",
-		width, height, get_image_width(img), get_image_height(img));
 	if (width != get_image_width(img) || height != get_image_height(img))
 		resize_image(img, width, height, true);
 
