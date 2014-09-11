@@ -66,14 +66,13 @@ char *make_temp_file(char *template)
 
 int sixel_write_callback(char *data, int size, void *priv)
 {
-	FILE *fp = (FILE *) priv;
 	/*
 	for (int i = 0; i < size; i++) {
 		if (i == (size - 1))
 			break;
 
 		if (*(data + i) == 0x1B && *(data + i + 1) == 0x5C) {
-			fprintf(fp, "\033\033\\\033P\\");
+			fprintf((FILE *) priv, "\033\033\\\033P\\");
 			break;
 		} else {
 			fwrite(data + i, 1, 1, fp);
@@ -83,7 +82,7 @@ int sixel_write_callback(char *data, int size, void *priv)
 	logging(DEBUG, "write callback() size:%d\n", size);
 	return size;
 	*/
-	return fwrite(data, size, 1, fp);
+	return fwrite(data, size, 1, (FILE *) priv);
 }
 
 int main(int argc, char **argv)
@@ -91,20 +90,11 @@ int main(int argc, char **argv)
 	extern char temp_file[]; /* global */
 	char *file;
 	bool resize = false;
-	int rotate = 0;
-	int opt;
+	int angle = 0, opt;
 	struct framebuffer fb;
 	struct image img;
 	sixel_output_t *sixel_context = NULL;
 	sixel_dither_t *sixel_dither = NULL;
-
-	/* open logfile */
-	/*
-	if ((logfp = efopen(logfile, "w")) == NULL)
-		logging(ERROR, "couldn't open log file\n");
-	else
-		setvbuf(logfp, NULL, _IONBF, 0);
-	*/
 
 	/* check arg */
 	while ((opt = getopt(argc, argv, "hfr:")) != -1) {
@@ -116,7 +106,7 @@ int main(int argc, char **argv)
 			resize = true;
 			break;
 		case 'r':
-			rotate = str2num(optarg);
+			angle = str2num(optarg);
 			break;
 		default:
 			break;
@@ -135,7 +125,10 @@ int main(int argc, char **argv)
 	}
 
 	/* init */
-	fb_init(&fb);
+	if (!fb_init(&fb, false)) {
+		logging(FATAL, "fb_init() failed\n");
+		return EXIT_FAILURE;
+	}
 	init_image(&img);
 
 	if (load_image(file, &img) == false)
@@ -143,43 +136,47 @@ int main(int argc, char **argv)
 
 	/* rotate/resize and draw */
 	/* TODO: support color reduction for 8bpp mode */
-	if (rotate != 0)
-		rotate_image(&img, rotate);
+	if (angle != 0)
+		rotate_image(&img, angle, true);
 
 	if (resize)
-		resize_image(&img, fb.width, fb.height);
+		resize_image(&img, fb.width, fb.height, true);
 
 	/* sixel */
-	/* FIXME: libsixel only allows 3 bytes per pixel image,
-		we should convert bpp when bpp is 1 or 2 or 4... */
+	/* XXX: libsixel only allows 3 bytes per pixel image,
+		we should convert bpp when bpp is 1 or 2 or 4 */
+	if (get_image_channel(&img) != SIXEL_BPP)
+		normalize_bpp(&img, SIXEL_BPP, true);
+
 	if ((sixel_dither = sixel_dither_create(SIXEL_COLORS)) == NULL) {
 		logging(ERROR, "couldn't create dither\n");
 		goto cleanup;
 	}
 
-	if (sixel_dither_initialize(sixel_dither, img.anim ? img.anim[0]: img.data, img.width, img.height,
-		//SIXEL_BPP /* must be "3" */, LARGE_AUTO, REP_AUTO, QUALITY_AUTO) != 0) {
-		img.channel, LARGE_AUTO, REP_AUTO, QUALITY_AUTO) != 0) {
+	/* XXX: use first frame for dither initialize */
+	if (sixel_dither_initialize(sixel_dither, get_current_frame(&img), get_image_width(&img), get_image_height(&img),
+		SIXEL_BPP, LARGE_AUTO, REP_AUTO, QUALITY_AUTO) != 0) {
 		logging(ERROR, "couldn't initialize dither\n");
 		sixel_dither_unref(sixel_dither);
 		goto cleanup;
 	}
-
 	sixel_dither_set_diffusion_type(sixel_dither, DIFFUSE_AUTO);
 
 	if ((sixel_context = sixel_output_create(sixel_write_callback, stdout)) == NULL) {
 		logging(ERROR, "couldn't create sixel context\n");
 		goto cleanup;
 	}
-
 	sixel_output_set_8bit_availability(sixel_context, CSIZE_7BIT);
 
-	//printf("\033P");
-	//sixel_encode(img.anim ? img.anim[0]: img.data, img.width, img.height, SIXEL_BPP, sixel_dither, sixel_context);
-	sixel_encode(img.anim ? img.anim[0]: img.data, img.width, img.height, img.channel, sixel_dither, sixel_context);
-	//printf("\033\\");
-
-	//draw_image(&fb, &img, 0, 0, 0, 0, img.width, img.height, true);
+	//printf("\033[s"); /* save cursor position (SCO) */
+	printf("\0337"); /* save cursor position */
+	for (int i = 0; i < get_frame_count(&img); i++) {
+		//printf("\033[u"); /* restore cursor position (SCO) */
+		printf("\0338"); /* restore cursor position */
+		sixel_encode(get_current_frame(&img), get_image_width(&img), get_image_height(&img), get_image_channel(&img), sixel_dither, sixel_context);
+		usleep(get_current_delay(&img) * 10000); /* gif delay 1 == 1/100 sec */
+		increment_frame(&img);
+	}
 
 	/* cleanup resource */
 cleanup:
@@ -189,7 +186,6 @@ cleanup:
 		sixel_output_unref(sixel_context);
 	free_image(&img);
 	fb_die(&fb);
-	//fclose(logfp);
 
 	return EXIT_SUCCESS;
 }
