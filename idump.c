@@ -62,7 +62,7 @@ int main(int argc, char **argv)
 	extern char temp_file[]; /* global */
 	char *file;
 	bool resize = false;
-	int rotate = 0;
+	int angle = 0;
 	int opt;
 	struct framebuffer fb;
 	struct image img;
@@ -85,7 +85,7 @@ int main(int argc, char **argv)
 			resize = true;
 			break;
 		case 'r':
-			rotate = str2num(optarg);
+			angle = str2num(optarg);
 			break;
 		default:
 			break;
@@ -104,7 +104,7 @@ int main(int argc, char **argv)
 	}
 
 	/* init */
-	if (!fb_init(&fb)) {
+	if (!fb_init(&fb, true)) {
 		logging(FATAL, "fb_init() failed\n");
 		return EXIT_FAILURE;
 	}
@@ -116,11 +116,11 @@ int main(int argc, char **argv)
 
 	/* rotate/resize and draw */
 	/* TODO: support color reduction for 8bpp mode */
-	if (rotate != 0)
-		rotate_image(&img, rotate);
+	if (angle != 0)
+		rotate_image(&img, angle, true);
 
 	if (resize)
-		resize_image(&img, fb.width, fb.height);
+		resize_image(&img, fb.width, fb.height, true);
 
 	draw_image(&fb, &img, 0, 0, 0, 0, img.width, img.height, true);
 
