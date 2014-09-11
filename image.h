@@ -119,8 +119,8 @@ uint8_t *rotate_image_single(struct image *img, uint8_t *data, int angle)
 	logging(DEBUG, "rotated image: %dx%d size:%d\n",
 		dst_width, dst_height, dst_width * dst_height * img->channel);
 
-	for (y2 = 0; y2 < img->height; y2++) {
-		for (x2 = 0; x2 < img->width; x2++) {
+	for (y2 = 0; y2 < dst_height; y2++) {
+		for (x2 = 0; x2 < dst_width; x2++) {
 			x1 = ((x2 - shift[r][0]) * cos[r] - (y2 - shift[r][1]) * sin[r]) * shift[r][2];
 			y1 = ((x2 - shift[r][0]) * sin[r] + (y2 - shift[r][1]) * cos[r]) * shift[r][2];
 			offset_src = img->channel * (y1 * img->width + x1);
@@ -179,12 +179,12 @@ uint8_t *resize_image_single(struct image *img, uint8_t *data, int disp_width, i
 	logging(DEBUG, "resized image: %dx%d size:%d\n",
 		dst_width, dst_height, dst_width * dst_height * img->channel);
 
-	for (int x = 0; x < img->height; x++) {
-		x_from = MULTIPLER * x / resize_rate;
-		x_to   = MULTIPLER * (x + 1) / resize_rate;
-		for (int y = 0; y < img->width; y++) {
-			y_from = MULTIPLER * y / resize_rate;
-			y_to   = MULTIPLER * (y + 1) / resize_rate;
+	for (int y = 0; y < dst_height; y++) {
+		y_from = MULTIPLER * y / resize_rate;
+		y_to   = MULTIPLER * (y + 1) / resize_rate;
+		for (int x = 0; x < dst_width; x++) {
+			x_from = MULTIPLER * x / resize_rate;
+			x_to   = MULTIPLER * (x + 1) / resize_rate;
 			get_average(img, data, x_from, y_from, x_to, y_to, pixel);
 			offset_dst = img->channel * (y * dst_width + x);
 			memcpy(resized_data + offset_dst, pixel, img->channel);
@@ -267,24 +267,24 @@ void draw_single(struct framebuffer *fb, struct image *img, uint8_t *data,
 	uint8_t r, g, b;
 	uint32_t color;
 
-	for (int h = 0; h < height; h++) {
-		if (h >= fb->height)
+	for (int y = 0; y < height; y++) {
+		if (y >= fb->height)
 			break;
 
-		for (int w = 0; w < width; w++) {
-			if (w >= fb->width)
+		for (int x = 0; x < width; x++) {
+			if (x >= fb->width)
 				break;
 
-			get_rgb(img, data, w + shift_x, h + shift_y, &r, &g, &b);
+			get_rgb(img, data, x + shift_x, y + shift_y, &r, &g, &b);
 			color = get_color(&fb->vinfo, r, g, b);
 
 			/* update copy buffer */
-			offset = (h + offset_y) * fb->line_length + (w + offset_x) * fb->bytes_per_pixel;
+			offset = (y + offset_y) * fb->line_length + (x + offset_x) * fb->bytes_per_pixel;
 			memcpy(fb->buf + offset, &color, fb->bytes_per_pixel);
 		}
 		/* draw each scanline */
 		if (width < fb->width) {
-			offset = (h + offset_y) * fb->line_length + offset_x * fb->bytes_per_pixel;
+			offset = (y + offset_y) * fb->line_length + offset_x * fb->bytes_per_pixel;
 			size = width * fb->bytes_per_pixel;
 			memcpy(fb->fp + offset, fb->buf + offset, size);
 		}
