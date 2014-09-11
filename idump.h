@@ -22,12 +22,4 @@ enum {
 	VERBOSE   = false,
 	BUFSIZE   = 1024,
 	MULTIPLER = 1024,
-	/* for parsearg.h */
-	//MAX_ARGS         = 128,
 };
-
-/*
-//static const char *logfile = "/tmp/idump.log";
-static const char *logfile = NULL;
-FILE *logfp = NULL;
-*/
