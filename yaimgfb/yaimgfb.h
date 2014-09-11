@@ -19,7 +19,7 @@
 #include <unistd.h>
 
 enum {
-	VERBOSE   = false,
+	VERBOSE   = true,
 	BUFSIZE   = 1024,
 	MULTIPLER = 1024,
 	MAX_IMAGE = 1024,
@@ -35,8 +35,3 @@ enum w3m_op {
 	W3M_CLEAR,
 	NUM_OF_W3M_FUNC,
 };
-
-/*
-static const char *logfile = "/tmp/yaimgfb.log";
-FILE *logfp = NULL;
-*/
