@@ -68,6 +68,20 @@ bool cmap_create(struct fb_cmap **cmap)
 	return true;
 }
 
+bool cmap_update(int fd, struct fb_cmap *cmap)
+{
+	if (!cmap) {
+		logging(WARN, "cmap is NULL\n");
+		return false;
+	}
+
+	if (ioctl(fd, FBIOPUTCMAP, cmap)) {
+		logging(ERROR, "ioctl: FBIOPUTCMAP failed\n");
+		return false;
+	}
+	return true;
+}
+
 bool cmap_init(struct framebuffer *fb, struct fb_var_screeninfo *vinfo)
 {
 	int i;
@@ -125,10 +139,9 @@ bool cmap_init(struct framebuffer *fb, struct fb_var_screeninfo *vinfo)
 			bit_reverse(b, 16) & bit_mask[16]: b;
 	}
 
-	if (ioctl(fb->fd, FBIOPUTCMAP, fb->cmap)) {
-		logging(ERROR, "ioctl: FBIOGET_VSCREENINFO failed\n");
+	if (!cmap_update(fb->fd, fb->cmap))
 		return false;
-	}
+
 	return true;
 }
 
@@ -192,7 +205,7 @@ static inline uint32_t get_color(struct fb_var_screeninfo *vinfo, uint8_t r, uin
 		+ (b << vinfo->blue.offset);
 }
 
-bool fb_init(struct framebuffer *fb)
+bool fb_init(struct framebuffer *fb, bool init_cmap)
 {
 	char *path;
 	struct fb_fix_screeninfo finfo;
@@ -215,6 +228,9 @@ bool fb_init(struct framebuffer *fb)
 		[FB_VISUAL_STATIC_PSEUDOCOLOR] = "FB_VISUAL_STATIC_PSEUDOCOLOR",
 		[FB_VISUAL_FOURCC]             = "FB_VISUAL_FOURCC",
 	};
+
+	fb->fd = -1;
+	fb->fp = MAP_FAILED;
 
 	if ((path = getenv("FRAMEBUFFER")) != NULL)
 		fb->fd = eopen(path, O_RDWR);
@@ -257,7 +273,9 @@ bool fb_init(struct framebuffer *fb)
 	} else if ((finfo.visual == FB_VISUAL_PSEUDOCOLOR || finfo.visual == FB_VISUAL_DIRECTCOLOR)
 		&& vinfo.bits_per_pixel == 8) {
 		/* XXX: direct color is not tested! */
-		if (!cmap_create(&fb->cmap) || !cmap_create(&fb->cmap_org) || !cmap_init(fb, &vinfo)) {
+		if (!init_cmap) {
+			fb->cmap = fb->cmap_org = NULL;
+		} else if (!cmap_create(&fb->cmap) || !cmap_create(&fb->cmap_org) || !cmap_init(fb, &vinfo)) {
 			logging(ERROR, "cmap init failed\n");
 			goto err_init_failed;
 		}
