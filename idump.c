@@ -5,43 +5,57 @@
 #include "loader.h"
 #include "image.h"
 
-char temp_file[] = "/tmp/idump.XXXXXX";
+char temp_file[BUFSIZE];
 
 void usage()
 {
-	printf("idump [-h] [-f] [-r angle] image\n"
-		"-h: show this help\n"
-		"-f: fit image to display\n"
-		"-r: rotate image (90/180/270)\n"
+	printf("usage:\n"
+		"\tidump [-h] [-f] [-r angle] image\n"
+		"\tcat image | idump\n"
+		"\twget -O - image_url | idump\n"
+		"options:\n"
+		"\t-h: show this help\n"
+		"\t-f: fit image to display\n"
+		"\t-r: rotate image (90/180/270)\n"
 		);
 }
 
 void remove_temp_file()
 {
-	extern char temp_file[]; /* global */
+	extern char temp_file[BUFSIZE]; /* global */
 	remove(temp_file);
 }
 
-char *make_temp_file(char *template)
+char *make_temp_file(const char *template)
 {
+	extern char temp_file[BUFSIZE]; /* global */
 	int fd;
 	ssize_t size, file_size = 0;
-	char buf[BUFSIZE];
-	errno = 0;
+	char buf[BUFSIZE], *env;
 
-	if ((fd = mkstemp(template)) < 0) {
-		perror("mkstemp");
+	/* stdin is tty or not */
+	if (isatty(STDIN_FILENO)) {
+		logging(ERROR, "stdin is neither pipe nor redirect\n");
 		return NULL;
 	}
-	logging(DEBUG, "tmp file:%s\n", template);
+
+	/* prepare temp file */
+	memset(temp_file, 0, BUFSIZE);
+	if ((env = getenv("TMPDIR")) != NULL) {
+		snprintf(temp_file, BUFSIZE, "%s/%s", env, template);
+	} else {
+		snprintf(temp_file, BUFSIZE, "/tmp/%s", template);
+	}
+
+	if ((fd = emkstemp(temp_file)) < 0)
+		return NULL;
+	logging(DEBUG, "tmp file:%s\n", temp_file);
 
 	/* register cleanup function */
-	if (atexit(remove_temp_file) != 0)
+	if (atexit(remove_temp_file))
 		logging(ERROR, "atexit() failed\nmaybe temporary file remains...\n");
 
-	if (fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK) == -1)
-		fprintf(stderr, "couldn't set O_NONBLOCK flag\n");
-
+	/* read data */
 	while ((size = read(STDIN_FILENO, buf, BUFSIZE)) > 0) {
 		write(fd, buf, size);
 		file_size += size;
@@ -49,31 +63,21 @@ char *make_temp_file(char *template)
 	eclose(fd);
 
 	if (file_size == 0) {
-		fprintf(stderr, "stdin is empty\n");
-		usage();
+		logging(ERROR, "stdin is empty\n");
 		return NULL;
 	}
 
-	return template;
+	return temp_file;
 }
 
 int main(int argc, char **argv)
 {
-	extern char temp_file[]; /* global */
+	const char *template = "sdump.XXXXXX";
 	char *file;
 	bool resize = false;
-	int angle = 0;
-	int opt;
+	int angle = 0, opt;
 	struct framebuffer fb;
 	struct image img;
-
-	/* open logfile */
-	/*
-	if ((logfp = efopen(logfile, "w")) == NULL)
-		logging(ERROR, "couldn't open log file\n");
-	else
-		setvbuf(logfp, NULL, _IONBF, 0);
-	*/
 
 	/* check arg */
 	while ((opt = getopt(argc, argv, "hfr:")) != -1) {
@@ -96,10 +100,11 @@ int main(int argc, char **argv)
 	if (optind < argc)
 		file = argv[optind];
 	else
-		file = make_temp_file(temp_file);
+		file = make_temp_file(template);
 
 	if (file == NULL) {
 		logging(FATAL, "input file not found\n");
+		usage();
 		return EXIT_FAILURE;
 	}
 
@@ -111,8 +116,11 @@ int main(int argc, char **argv)
 
 	init_image(&img);
 
-	if (!load_image(file, &img))
-		goto cleanup;
+	if (!load_image(file, &img)) {
+		logging(FATAL, "couldn't load image\n");
+		fb_die(&fb);
+		return EXIT_FAILURE;
+	}
 
 	/* rotate/resize and draw */
 	/* TODO: support color reduction for 8bpp mode */
@@ -125,8 +133,6 @@ int main(int argc, char **argv)
 	draw_image(&fb, &img, 0, 0, 0, 0, img.width, img.height, true);
 
 	/* cleanup resource */
-cleanup:
-	//fclose(logfp);
 	free_image(&img);
 	fb_die(&fb);
 
