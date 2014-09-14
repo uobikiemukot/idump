@@ -1,30 +1,38 @@
 #!/bin/bash
-# usage: ndump FILE1 FILE2 FILE3...
 
 export FRAMEBUFFER=/dev/fb0
-OPT="-f -r 90"
+
+IDUMP_OPT="-f"
 FILES=($@)
 INDEX=0
 
-echo "file num: ${#FILES[@]}"
+#echo "file num: ${#FILES[@]}"
 if test ${#FILES[@]} -le "0"; then
 	exit 0
 fi
 
-idump $OPT "${FILES[$INDEX]}" > /dev/null 2>&1
+tput civis
+
+#echo -n "filename:${FILES[$INDEX]} index:$INDEX"
+idump "$IDUMP_OPT" "${FILES[$INDEX]}" > /dev/null 2>&1
 
 while :; do
 	read -s -n 1 KEY
 
-	tput cr
-	tput el
+	#tput cr
+	#tput el
 
 	case "$KEY" in
 	"w")
 		INDEX=`expr $INDEX + 1`;;
+	"W")
+		INDEX=`expr $INDEX + 10`;;
 	"m")
 		INDEX=`expr $INDEX - 1`;;
+	"M")
+		INDEX=`expr $INDEX - 10`;;
 	"q")
+		tput cnorm
 		exit 0;;
 	esac
 
@@ -34,7 +42,6 @@ while :; do
 		INDEX=0
 	fi
 
-	#echo $INDEX
-	echo -n "filename:${FILES[$INDEX]}"
-	idump $OPT "${FILES[$INDEX]}" > /dev/null 2>&1
+	#echo -n "filename:${FILES[$INDEX]} index:$INDEX"
+	idump "$IDUMP_OPT" "${FILES[$INDEX]}" > /dev/null 2>&1
 done

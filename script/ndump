@@ -1,5 +1,0 @@
-#!/bin/bash
-# usage: ndump URL
-
-wget -q --timeout=2 -O - $1 \
-| FRAMEBUFFER="/dev/fb0" idump -f > /dev/null 2>&1

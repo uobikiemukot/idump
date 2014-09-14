@@ -1,0 +1,41 @@
+#!/bin/bash
+
+export FRAMEBUFFER=/dev/fb0
+
+IDUMP_OPT="-f"
+MUDRAW_OPT="-o /dev/stdout -F png -h 1024"
+FILE=$1
+INDEX=1 # page origin:1
+
+tput civis
+#tput clear
+
+#echo "filename:$FILE page:$INDEX"
+mudraw $MUDRAW_OPT $FILE $INDEX 2> /dev/null | idump $IDUMP_OPT > /dev/null 2>&1
+
+while :; do
+	read -s -n 1 KEY
+
+	#tput clear
+
+	case "$KEY" in
+	"w")
+		INDEX=`expr $INDEX + 1`;;
+	"W")
+		INDEX=`expr $INDEX + 10`;;
+	"m")
+		INDEX=`expr $INDEX - 1`;;
+	"M")
+		INDEX=`expr $INDEX - 10`;;
+	"q")
+		tput cnorm
+		exit 0;;
+	esac
+
+	if test $INDEX -lt "1"; then
+		INDEX=1
+	fi
+
+	#echo "filename:$FILE page:$INDEX"
+	mudraw $MUDRAW_OPT $FILE $INDEX 2> /dev/null | idump $IDUMP_OPT > /dev/null 2>&1
+done

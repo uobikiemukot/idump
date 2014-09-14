@@ -1,0 +1,8 @@
+#!/bin/bash
+
+export FRAMEBUFFER=/dev/fb0
+
+IDUMP_OPT="-f"
+WGET_OPT="-q -O -"
+
+wget $WGET_OPT $1 | idump $IDUMP_OPT > /dev/null 2>&1
