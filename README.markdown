@@ -2,6 +2,8 @@
 
 tiny image viewer for framebuffer
 
+sixel version is [sdump](https://github.com/uobikiemukot/sdump)
+
 ## usage
 
  $ idump [-h] [-f] [-r angle] image
@@ -26,8 +28,9 @@ tiny image viewer for framebuffer
 
 ## wrapper scripts
 
--	ndump: equal "wget -q -O - url | idump"
--	pdump: take multiple files as arguments
+-   iurl: equal "wget -q -O - url | idump" (depends wget)
+-   iviewer: take multiple files as arguments
+-   ipdf: pdf viewer (depends mupdf >= 1.5)
 
 ## license
 
