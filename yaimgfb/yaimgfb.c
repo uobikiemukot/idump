@@ -6,34 +6,13 @@
 #include "../loader.h"
 #include "../image.h"
 
-FILE *logfp = NULL; /* FILE pointer of logging file */
-
-void loggingfp(FILE *fp, enum loglevel_t loglevel, char *format, ...)
-{
-	va_list arg;
-	static const char *loglevel2str[] = {
-		[DEBUG] = "DEBUG",
-		[WARN]  = "WARN",
-		[ERROR] = "ERROR",
-		[FATAL] = "FATAL",
-	};
-
-	if (loglevel == DEBUG && !VERBOSE)
-		return;
-
-	fprintf(fp, ">>%s<<\t", loglevel2str[loglevel]);
-	va_start(arg, format);
-	vfprintf(fp, format, arg);
-	va_end(arg);
-}
-
 void w3m_draw(struct framebuffer *fb, struct image imgs[], struct parm_t *parm, int op)
 {
 	int index, offset_x, offset_y, width, height, shift_x, shift_y, view_w, view_h;
 	char *file;
 	struct image *img;
 
-	loggingfp(logfp, DEBUG, "w3m_%s()\n", (op == W3M_DRAW) ? "draw": "redraw");
+	logging(DEBUG, "w3m_%s()\n", (op == W3M_DRAW) ? "draw": "redraw");
 
 	if (parm->argc != 11)
 		return;
@@ -55,7 +34,7 @@ void w3m_draw(struct framebuffer *fb, struct image imgs[], struct parm_t *parm, 
 		index = MAX_IMAGE - 1;
 	img = &imgs[index];
 
-	loggingfp(logfp, DEBUG, "index:%d offset_x:%d offset_y:%d shift_x:%d shift_y:%d view_w:%d view_h:%d\n",
+	logging(DEBUG, "index:%d offset_x:%d offset_y:%d shift_x:%d shift_y:%d view_w:%d view_h:%d\n",
 		index, offset_x, offset_y, shift_x, shift_y, view_w, view_h);
 
 	if (op == W3M_DRAW) {
@@ -68,7 +47,7 @@ void w3m_draw(struct framebuffer *fb, struct image imgs[], struct parm_t *parm, 
 	}
 
 	if (!get_current_frame(img)) {
-		loggingfp(logfp, ERROR, "specify unloaded image? img[%d] is NULL\n", index);
+		logging(ERROR, "specify unloaded image? img[%d] is NULL\n", index);
 		return;
 	}
 	increment_frame(img);
@@ -83,23 +62,23 @@ void w3m_draw(struct framebuffer *fb, struct image imgs[], struct parm_t *parm, 
 
 void w3m_stop()
 {
-	loggingfp(logfp, DEBUG, "w3m_stop()\n");
+	logging(DEBUG, "w3m_stop()\n");
 }
 
 void w3m_sync()
 {
-	loggingfp(logfp, DEBUG, "w3m_sync()\n");
+	logging(DEBUG, "w3m_sync()\n");
 }
 
 void w3m_nop()
 {
-	loggingfp(logfp, DEBUG, "w3m_nop()\n");
+	logging(DEBUG, "w3m_nop()\n");
 	printf("\n");
 }
 
 void w3m_getsize(struct image *img, const char *file)
 {
-	loggingfp(logfp, DEBUG, "w3m_getsize()\n");
+	logging(DEBUG, "w3m_getsize()\n");
 
 	if (get_current_frame(img)) { /* cleanup preloaded image */
 		free_image(img);
@@ -116,7 +95,7 @@ void w3m_clear(struct image img[], struct parm_t *parm)
 {
 	int offset_x, offset_y, width, height;
 
-	loggingfp(logfp, DEBUG, "w3m_clear()\n");
+	logging(DEBUG, "w3m_clear()\n");
 
 	/*
 	if (parm->argc != 5)
@@ -149,6 +128,39 @@ void (*w3m_func[NUM_OF_W3M_FUNC])(struct framebuffer *fb, struct image img[], st
 	[W3M_CLEAR]   = w3m_clear,
 };
 */
+
+
+bool file_lock(FILE *fp)
+{
+	struct flock lock;
+
+	lock.l_type = F_WRLCK;
+	lock.l_whence = SEEK_SET;
+	lock.l_start = 0;
+	lock.l_len = 0;
+	lock.l_pid = getpid();
+
+	if (fcntl(fileno(fp), F_SETLKW, &lock) == -1)
+		return false;
+
+	return true;
+}
+
+bool file_unlock(FILE *fp)
+{
+	struct flock lock;
+
+	lock.l_type = F_UNLCK;
+	lock.l_whence = SEEK_SET;
+	lock.l_start = 0;
+	lock.l_len = 0;
+	lock.l_pid = getpid();
+
+	if (fcntl(fileno(fp), F_SETLK, &lock) == -1)
+		return false;
+
+	return true;
+}
 
 int main(int argc, char *argv[])
 {
@@ -193,24 +205,23 @@ int main(int argc, char *argv[])
 	struct image img[MAX_IMAGE];
 	struct parm_t parm;
 
-	if ((logfp = efopen("/tmp/yaimgfb.log", "w")) == NULL) {
-		loggingfp(logfp, ERROR, "log file open failed\n");
-		logfp = stderr;
-	}
-	setvbuf(logfp, NULL, _IONBF, 0);
+	freopen("/tmp/yaimgfb.log", "w", stderr);
+	file_lock(stderr);
+
+	setvbuf(stderr, NULL, _IONBF, 0);
 	setvbuf(stdout, NULL, _IONBF, 0);
 
-	loggingfp(logfp, DEBUG, "--- new instance ---\n");
+	logging(DEBUG, "--- new instance ---\n");
 	for (i = 0; i < argc; i++)
-		loggingfp(logfp, DEBUG, "argv[%d]:%s\n", i, argv[i]);
-	loggingfp(logfp, DEBUG, "argc:%d\n", argc);
+		logging(DEBUG, "argv[%d]:%s\n", i, argv[i]);
+	logging(DEBUG, "argc:%d\n", argc);
 
 	/* init */
 	for (i = 0; i < MAX_IMAGE; i++)
 		init_image(&img[i]);
 
 	if (!fb_init(&fb, false)) {
-		loggingfp(logfp, ERROR, "framebuffer initialize failed\n");
+		logging(ERROR, "framebuffer initialize failed\n");
 		return EXIT_FAILURE;
 	}
 
@@ -231,12 +242,12 @@ int main(int argc, char *argv[])
 	/* main loop */
     while (fgets(buf, BUFSIZE, stdin) != NULL) {
 		if ((cp = strchr(buf, '\n')) == NULL) {
-			loggingfp(logfp, ERROR, "lbuf overflow? (couldn't find newline) buf length:%d\n", strlen(buf));
+			logging(ERROR, "lbuf overflow? (couldn't find newline) buf length:%d\n", strlen(buf));
 			continue;
 		}
 		*cp = '\0';
 
-		loggingfp(logfp, DEBUG, "stdin: %s\n", buf);
+		logging(DEBUG, "stdin: %s\n", buf);
 
 		reset_parm(&parm);
 		parse_arg(buf, &parm, ';', isgraph);
@@ -280,8 +291,13 @@ release:
 	for (i = 0; i < MAX_IMAGE; i++)
 		free_image(&img[i]);
 	fb_die(&fb);
-	loggingfp(logfp, DEBUG, "exiting...\n");
-	efclose(logfp);
+	logging(DEBUG, "exiting...\n");
+
+	fflush(stdout);
+	fflush(stderr);
+
+	file_unlock(stderr);
+	efclose(stderr);
 
 	return EXIT_SUCCESS;
 }
