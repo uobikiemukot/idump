@@ -1,16 +1,16 @@
 /* See LICENSE for licence details. */
 #include "yaimgfb.h"
 #include "../util.h"
-#include "../parsearg.h"
-#include "../framebuffer.h"
+#include "../fb/common.h"
 #include "../loader.h"
 #include "../image.h"
+#include "parsearg.h"
 
-void w3m_draw(struct framebuffer *fb, struct image imgs[], struct parm_t *parm, int op)
+void w3m_draw(struct framebuffer_t *fb, struct image_t imgs[], struct parm_t *parm, int op)
 {
 	int index, offset_x, offset_y, width, height, shift_x, shift_y, view_w, view_h;
 	char *file;
-	struct image *img;
+	struct image_t *img;
 
 	logging(DEBUG, "w3m_%s()\n", (op == W3M_DRAW) ? "draw": "redraw");
 
@@ -76,7 +76,7 @@ void w3m_nop()
 	printf("\n");
 }
 
-void w3m_getsize(struct image *img, const char *file)
+void w3m_getsize(struct image_t *img, const char *file)
 {
 	logging(DEBUG, "w3m_getsize()\n");
 
@@ -91,7 +91,7 @@ void w3m_getsize(struct image *img, const char *file)
 		printf("0 0\n");
 }
 
-void w3m_clear(struct image img[], struct parm_t *parm)
+void w3m_clear(struct image_t img[], struct parm_t *parm)
 {
 	int offset_x, offset_y, width, height;
 
@@ -118,7 +118,7 @@ void w3m_clear(struct image img[], struct parm_t *parm)
 }
 
 /*
-void (*w3m_func[NUM_OF_W3M_FUNC])(struct framebuffer *fb, struct image img[], struct parm_t *parm, int op) = {
+void (*w3m_func[NUM_OF_W3M_FUNC])(struct framebuffer_t *fb, struct image_t img[], struct parm_t *parm, int op) = {
 	[W3M_DRAW]    = w3m_draw,
 	[W3M_REDRAW]  = w3m_draw,
 	[W3M_STOP]    = w3m_stop,
@@ -201,15 +201,11 @@ int main(int argc, char *argv[])
 	*/
 	int i, op, optind;
 	char buf[BUFSIZE], *cp;
-	struct framebuffer fb;
-	struct image img[MAX_IMAGE];
+	struct framebuffer_t fb;
+	struct image_t img[MAX_IMAGE];
 	struct parm_t parm;
 
-	freopen("/tmp/yaimgfb.log", "w", stderr);
-	file_lock(stderr);
-
-	setvbuf(stderr, NULL, _IONBF, 0);
-	setvbuf(stdout, NULL, _IONBF, 0);
+	freopen("/tmp/yaimgfb.instance.log", "a", stderr);
 
 	logging(DEBUG, "--- new instance ---\n");
 	for (i = 0; i < argc; i++)
@@ -220,7 +216,7 @@ int main(int argc, char *argv[])
 	for (i = 0; i < MAX_IMAGE; i++)
 		init_image(&img[i]);
 
-	if (!fb_init(&fb, false)) {
+	if (!fb_init(&fb)) {
 		logging(ERROR, "framebuffer initialize failed\n");
 		return EXIT_FAILURE;
 	}
@@ -229,7 +225,7 @@ int main(int argc, char *argv[])
 	optind = 1;
 	while (optind < argc) {
 		if (strncmp(argv[optind], "-test", 5) == 0) {
-			printf("%d %d\n", fb.width, fb.height);
+			printf("%d %d\n", fb.info.width, fb.info.height);
 			goto release;
 		}
 		else if (strncmp(argv[optind], "-size", 5) == 0 && ++optind < argc) {
@@ -238,6 +234,12 @@ int main(int argc, char *argv[])
 		}
 		optind++;
 	}
+
+	freopen("/tmp/yaimgfb.log", "w", stderr);
+	file_lock(stderr);
+
+	setvbuf(stderr, NULL, _IONBF, 0);
+	setvbuf(stdout, NULL, _IONBF, 0);
 
 	/* main loop */
     while (fgets(buf, BUFSIZE, stdin) != NULL) {

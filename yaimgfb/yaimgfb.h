@@ -5,7 +5,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <linux/fb.h>
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stdbool.h>
