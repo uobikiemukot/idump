@@ -169,7 +169,7 @@ uint8_t *resize_image_single(struct image_t *img, uint8_t *data, int disp_width,
 	if ((resize_rate / MULTIPLER) >= 1)
 		return NULL;
 
-	/* FIXME: let the same num (img->width == fb->width), if it causes SEGV, remove "+ 1" */
+	/* FIXME: let the same num (img->width == fb->info.width), if it causes SEGV, remove "+ 1" */
 	dst_width  = resize_rate * img->width / MULTIPLER + 1;
 	dst_height = resize_rate * img->height / MULTIPLER;
 
@@ -268,31 +268,31 @@ void draw_image_single(struct framebuffer_t *fb, struct image_t *img, uint8_t *d
 	uint32_t color;
 
 	for (int y = 0; y < height; y++) {
-		if (y >= fb->height)
+		if (y >= fb->info.height)
 			break;
 
 		for (int x = 0; x < width; x++) {
-			if (x >= fb->width)
+			if (x >= fb->info.width)
 				break;
 
 			get_rgb(img, data, x + shift_x, y + shift_y, &r, &g, &b);
-			color = get_color(&fb->vinfo, r, g, b);
+			color = color2pixel(&fb->info, (r << 16) + (g << 8) + b);
 
 			/* update copy buffer */
-			offset = (y + offset_y) * fb->line_length + (x + offset_x) * fb->bytes_per_pixel;
-			memcpy(fb->buf + offset, &color, fb->bytes_per_pixel);
+			offset = (y + offset_y) * fb->info.line_length + (x + offset_x) * fb->info.bytes_per_pixel;
+			memcpy(fb->buf + offset, &color, fb->info.bytes_per_pixel);
 		}
 		/* draw each scanline */
-		if (width < fb->width) {
-			offset = (y + offset_y) * fb->line_length + offset_x * fb->bytes_per_pixel;
-			size = width * fb->bytes_per_pixel;
+		if (width < fb->info.width) {
+			offset = (y + offset_y) * fb->info.line_length + offset_x * fb->info.bytes_per_pixel;
+			size = width * fb->info.bytes_per_pixel;
 			memcpy(fb->fp + offset, fb->buf + offset, size);
 		}
 	}
 	/* we can draw all image data at once! */
-	if (width >= fb->width) {
-		size = (height > fb->height) ? fb->height: height;
-		size *= fb->line_length;
+	if (width >= fb->info.width) {
+		size = (height > fb->info.height) ? fb->info.height: height;
+		size *= fb->info.line_length;
 		memcpy(fb->fp, fb->buf, size);
 	}
 }
@@ -333,11 +333,11 @@ void draw_image(struct framebuffer_t *fb, struct image_t *img,
 	if (shift_y + height > img->height)
 		height = img->height - shift_y;
 
-	if (offset_x + width > fb->width)
-		width = fb->width - offset_x;
+	if (offset_x + width > fb->info.width)
+		width = fb->info.width - offset_x;
 
-	if (offset_y + height > fb->height)
-		height = fb->height - offset_y;
+	if (offset_y + height > fb->info.height)
+		height = fb->info.height - offset_y;
 
 	/* XXX: ignore img->loop_count, force 1 loop */
 	if (enable_anim) {

@@ -1,7 +1,8 @@
 /* See LICENSE for licence details. */
 #include "idump.h"
 #include "util.h"
-#include "framebuffer.h"
+//#include "framebuffer.h"
+#include "fb/common.h"
 #include "loader.h"
 #include "image.h"
 
@@ -109,12 +110,10 @@ int main(int argc, char **argv)
 	}
 
 	/* init */
-	if (!fb_init(&fb, true)) {
+	if (!fb_init(&fb)) {
 		logging(FATAL, "fb_init() failed\n");
 		return EXIT_FAILURE;
 	}
-
-	init_image(&img);
 
 	if (!load_image(file, &img)) {
 		logging(FATAL, "couldn't load image\n");
@@ -128,7 +127,7 @@ int main(int argc, char **argv)
 		rotate_image(&img, angle, true);
 
 	if (resize)
-		resize_image(&img, fb.width, fb.height, true);
+		resize_image(&img, fb.info.width, fb.info.height, true);
 
 	draw_image(&fb, &img, 0, 0, 0, 0, img.width, img.height, true);
 
