@@ -31,7 +31,7 @@ enum filetype_t {
 	TYPE_UNKNOWN,
 };
 
-struct image {
+struct image_t {
 	/* normally use data[0], data[n] (n > 1) for animanion gif */
 	uint8_t *data[MAX_FRAME_NUM];
 	int width;
@@ -85,7 +85,7 @@ void my_jpeg_warning(j_common_ptr cinfo, int msg_level)
 	}
 }
 
-bool load_jpeg(FILE *fp, struct image *img)
+bool load_jpeg(FILE *fp, struct image_t *img)
 {
 	int row_stride, size;
 	JSAMPARRAY buffer;
@@ -108,7 +108,7 @@ bool load_jpeg(FILE *fp, struct image *img)
 
 	/* disable colormap (indexed color), grayscale -> rgb */
 	cinfo.quantize_colors = FALSE;
-	cinfo.out_color_space = JCS_RGB;
+	//cinfo.out_color_space = JCS_RGB;
 	jpeg_start_decompress(&cinfo);
 
 	img->width   = cinfo.output_width;
@@ -151,7 +151,7 @@ void my_png_warning(png_structp png_ptr, png_const_charp warning_msg)
 	logging(WARN, "libpng: %s\n", warning_msg);
 }
 
-bool load_png(FILE *fp, struct image *img)
+bool load_png(FILE *fp, struct image_t *img)
 {
 	int row_stride, size;
 	png_bytep *row_pointers = NULL;
@@ -185,10 +185,13 @@ bool load_png(FILE *fp, struct image *img)
 		-	1,2,4 bits per color -> 8 bits per color
 		-	grayscale -> rgb
 		-	perform set_expand() */
+	/*
 	png_read_png(png_ptr, info_ptr,
 		PNG_TRANSFORM_STRIP_ALPHA | PNG_TRANSFORM_STRIP_16 |
 		PNG_TRANSFORM_PACKING | PNG_TRANSFORM_GRAY_TO_RGB |
 		PNG_TRANSFORM_EXPAND, NULL);
+	*/
+	png_read_png(png_ptr, info_ptr, PNG_TRANSFORM_PACKING, NULL);
 
 	img->width   = png_get_image_width(png_ptr, info_ptr);
 	img->height  = png_get_image_height(png_ptr, info_ptr);
@@ -266,7 +269,7 @@ void gif_bitmap_modified(void *bitmap)
 	return;
 }
 
-bool load_gif(FILE *fp, struct image *img)
+bool load_gif(FILE *fp, struct image_t *img)
 {
 	gif_bitmap_callback_vt gif_callbacks = {
 		gif_bitmap_create,
@@ -349,7 +352,7 @@ size_t bmp_bitmap_get_bpp(void *bitmap)
 	return BYTES_PER_PIXEL;
 }
 
-bool load_bmp(FILE *fp, struct image *img)
+bool load_bmp(FILE *fp, struct image_t *img)
 {
 	bmp_bitmap_callback_vt bmp_callbacks = {
 		bmp_bitmap_create,
@@ -418,7 +421,7 @@ inline uint8_t pnm_normalize(int c, int type, int max_value)
 		return 0xFF * c / max_value;
 }
 
-bool load_pnm(FILE *fp, struct image *img)
+bool load_pnm(FILE *fp, struct image_t *img)
 {
 	int size, type, c, count, max_value = 0;
 
@@ -478,30 +481,6 @@ bool load_pnm(FILE *fp, struct image *img)
 	return true;
 }
 
-void init_image(struct image *img)
-{
-	for (int i = 0; i < MAX_FRAME_NUM; i++) {
-		img->data[i] = NULL;
-		img->delay[i] = 0;
-	}
-	img->width   = 0;
-	img->height  = 0;
-	img->channel = 0;
-	img->alpha   = false;
-	/* for animation gif */
-	img->frame_count   = 1;
-	img->loop_count    = 0;
-	img->current_frame = 0;
-}
-
-void free_image(struct image *img)
-{
-	for (int i = 0; i < img->frame_count; i++) {
-		free(img->data[i]);
-		img->data[i] = NULL;
-	}
-}
-
 enum filetype_t check_filetype(FILE *fp)
 {
 	/*
@@ -538,13 +517,40 @@ enum filetype_t check_filetype(FILE *fp)
 		return TYPE_UNKNOWN;
 }
 
-bool load_image(const char *file, struct image *img)
+void init_image(struct image_t *img)
+{
+	for (int i = 0; i < MAX_FRAME_NUM; i++) {
+		img->data[i] = NULL;
+		img->delay[i] = 0;
+	}
+	img->width   = 0;
+	img->height  = 0;
+	img->channel = 0;
+	img->alpha   = false;
+
+	/* for animation gif */
+	img->frame_count   = 1;
+	img->loop_count    = 0;
+	img->current_frame = 0;
+}
+
+void free_image(struct image_t *img)
+{
+	for (int i = 0; i < img->frame_count; i++) {
+		free(img->data[i]);
+		img->data[i] = NULL;
+	}
+}
+
+bool load_image(const char *file, struct image_t *img)
 {
 	int i;
 	enum filetype_t type;
 	FILE *fp;
 
-	static bool (*loader[])(FILE *fp, struct image *img) = {
+	init_image(img);
+
+	static bool (*loader[])(FILE *fp, struct image_t *img) = {
 		[TYPE_JPEG] = load_jpeg,
 		[TYPE_PNG]  = load_png,
 		[TYPE_GIF]  = load_gif,
@@ -575,7 +581,7 @@ bool load_image(const char *file, struct image *img)
 
 image_load_error:
 	logging(ERROR, "image load error: %s\n", file);
-	//init_image(img);
+	//release_image(img);
 	efclose(fp);
 	return false;
 }

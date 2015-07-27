@@ -76,8 +76,8 @@ int main(int argc, char **argv)
 	char *file;
 	bool resize = false;
 	int angle = 0, opt;
-	struct framebuffer fb;
-	struct image img;
+	struct framebuffer_t fb;
+	struct image_t img;
 
 	/* check arg */
 	while ((opt = getopt(argc, argv, "hfr:")) != -1) {

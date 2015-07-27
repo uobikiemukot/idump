@@ -24,7 +24,7 @@ const uint32_t bit_mask[] = {
 	0x1FFFFFFF, 0x3FFFFFFF, 0x7FFFFFFF, 0xFFFFFFFF,
 };
 
-struct framebuffer {
+struct framebuffer_t {
 	uint8_t *fp;                    /* pointer of framebuffer (read only) */
 	uint8_t *buf;                   /* copy of framebuffer */
 	int fd;                         /* file descriptor of framebuffer */
@@ -82,7 +82,7 @@ bool cmap_update(int fd, struct fb_cmap *cmap)
 	return true;
 }
 
-bool cmap_init(struct framebuffer *fb, struct fb_var_screeninfo *vinfo)
+bool cmap_init(struct framebuffer_t *fb, struct fb_var_screeninfo *vinfo)
 {
 	int i;
 	uint8_t index;
@@ -145,7 +145,7 @@ bool cmap_init(struct framebuffer *fb, struct fb_var_screeninfo *vinfo)
 	return true;
 }
 
-void draw_cmap_table(struct framebuffer *fb)
+void draw_cmap_table(struct framebuffer_t *fb)
 {
 	/* for debug */
 	int y_offset = 0, x_offset;
@@ -204,7 +204,7 @@ static inline uint32_t get_color(struct fb_var_screeninfo *vinfo, uint8_t r, uin
 		+ (b << vinfo->blue.offset);
 }
 
-bool fb_init(struct framebuffer *fb, bool init_cmap)
+bool fb_init(struct framebuffer_t *fb, bool init_cmap)
 {
 	char *path;
 	struct fb_fix_screeninfo finfo;
@@ -302,7 +302,7 @@ err_init_failed:
 	return false;
 }
 
-void fb_die(struct framebuffer *fb)
+void fb_die(struct framebuffer_t *fb)
 {
 	cmap_die(fb->cmap);
 	if (fb->cmap_org) {

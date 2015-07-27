@@ -2,43 +2,43 @@
 /* this header file depends loader.h */
 
 /* inline functions:
-	never access member of struct image directly */
-static inline int get_frame_count(struct image *img)
+	never access member of struct image_t directly */
+static inline int get_frame_count(struct image_t *img)
 {
 	return img->frame_count;
 }
 
-static inline uint8_t *get_current_frame(struct image *img)
+static inline uint8_t *get_current_frame(struct image_t *img)
 {
 	return img->data[img->current_frame];
 }
 
-static inline int get_current_delay(struct image *img)
+static inline int get_current_delay(struct image_t *img)
 {
 	return img->delay[img->current_frame];
 }
 
-static inline void increment_frame(struct image *img)
+static inline void increment_frame(struct image_t *img)
 {
 	img->current_frame = (img->current_frame + 1) % img->frame_count;
 }
 
-static inline int get_image_width(struct image *img)
+static inline int get_image_width(struct image_t *img)
 {
 	return img->width;
 }
 
-static inline int get_image_height(struct image *img)
+static inline int get_image_height(struct image_t *img)
 {
 	return img->height;
 }
 
-static inline int get_image_channel(struct image *img)
+static inline int get_image_channel(struct image_t *img)
 {
 	return img->channel;
 }
 
-static inline void get_rgb(struct image *img, uint8_t *data, int x, int y, uint8_t *r, uint8_t *g, uint8_t *b)
+static inline void get_rgb(struct image_t *img, uint8_t *data, int x, int y, uint8_t *r, uint8_t *g, uint8_t *b)
 {
 	uint8_t *ptr;
 
@@ -51,7 +51,7 @@ static inline void get_rgb(struct image *img, uint8_t *data, int x, int y, uint8
 	}
 }
 
-static inline void get_average(struct image *img, uint8_t *data, int x_from, int y_from, int x_to, int y_to, uint8_t pixel[])
+static inline void get_average(struct image_t *img, uint8_t *data, int x_from, int y_from, int x_to, int y_to, uint8_t pixel[])
 {
 	int cell_num;
 	uint8_t r, g, b;
@@ -82,7 +82,7 @@ static inline void get_average(struct image *img, uint8_t *data, int x_from, int
 
 /* some image proccessing functions:
 	never use *_single functions directly */
-uint8_t *rotate_image_single(struct image *img, uint8_t *data, int angle)
+uint8_t *rotate_image_single(struct image_t *img, uint8_t *data, int angle)
 {
 	int x1, x2, y1, y2, r, dst_width, dst_height;
 	uint8_t *rotated_data;
@@ -136,7 +136,7 @@ uint8_t *rotate_image_single(struct image *img, uint8_t *data, int angle)
 	return rotated_data;
 }
 
-void rotate_image(struct image *img, int angle, bool rotate_all)
+void rotate_image(struct image_t *img, int angle, bool rotate_all)
 {
 	uint8_t *rotated_data;
 
@@ -150,7 +150,7 @@ void rotate_image(struct image *img, int angle, bool rotate_all)
 	}
 }
 
-uint8_t *resize_image_single(struct image *img, uint8_t *data, int disp_width, int disp_height)
+uint8_t *resize_image_single(struct image_t *img, uint8_t *data, int disp_width, int disp_height)
 {
 	/* TODO: support enlarge */
 	int width_rate, height_rate, resize_rate;
@@ -198,7 +198,7 @@ uint8_t *resize_image_single(struct image *img, uint8_t *data, int disp_width, i
 	return resized_data;
 }
 
-void resize_image(struct image *img, int disp_width, int disp_height, bool resize_all)
+void resize_image(struct image_t *img, int disp_width, int disp_height, bool resize_all)
 {
 	uint8_t *resized_data;
 
@@ -212,7 +212,7 @@ void resize_image(struct image *img, int disp_width, int disp_height, bool resiz
 	}
 }
 
-uint8_t *normalize_bpp_single(struct image *img, uint8_t *data, int bytes_per_pixel)
+uint8_t *normalize_bpp_single(struct image_t *img, uint8_t *data, int bytes_per_pixel)
 {
 	uint8_t *normalized_data, *src, *dst, r, g, b;
 
@@ -242,7 +242,7 @@ uint8_t *normalize_bpp_single(struct image *img, uint8_t *data, int bytes_per_pi
 	return normalized_data;
 }
 
-void normalize_bpp(struct image *img, int bytes_per_pixel, bool normalize_all)
+void normalize_bpp(struct image_t *img, int bytes_per_pixel, bool normalize_all)
 {
 	uint8_t *normalized_data;
 
@@ -260,7 +260,7 @@ void normalize_bpp(struct image *img, int bytes_per_pixel, bool normalize_all)
 	}
 }
 
-void draw_single(struct framebuffer *fb, struct image *img, uint8_t *data,
+void draw_image_single(struct framebuffer_t *fb, struct image_t *img, uint8_t *data,
 	int offset_x, int offset_y, int shift_x, int shift_y, int width, int height)
 {
 	int offset, size;
@@ -297,7 +297,7 @@ void draw_single(struct framebuffer *fb, struct image *img, uint8_t *data,
 	}
 }
 
-void draw_image(struct framebuffer *fb, struct image *img,
+void draw_image(struct framebuffer_t *fb, struct image_t *img,
 	int offset_x, int offset_y, int shift_x, int shift_y, int width, int height, bool enable_anim)
 {
 	/*
@@ -342,11 +342,11 @@ void draw_image(struct framebuffer *fb, struct image *img,
 	/* XXX: ignore img->loop_count, force 1 loop */
 	if (enable_anim) {
 		while (loop_count < img->frame_count) {
-			draw_single(fb, img, img->data[loop_count], offset_x, offset_y, shift_x, shift_y, width, height);
+			draw_image_single(fb, img, img->data[loop_count], offset_x, offset_y, shift_x, shift_y, width, height);
 			usleep(img->delay[loop_count] * 10000); /* gif delay 1 == 1/100 sec */
 			loop_count++;
 		}
 	} else {
-		draw_single(fb, img, img->data[img->current_frame], offset_x, offset_y, shift_x, shift_y, width, height);
+		draw_image_single(fb, img, img->data[img->current_frame], offset_x, offset_y, shift_x, shift_y, width, height);
 	}
 }
