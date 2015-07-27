@@ -1,8 +1,8 @@
 CC      ?= gcc
-LDFLAGS ?= -ljpeg -lpng
+LDFLAGS ?= -lpng -ljpeg -L/usr/local/lib
 CFLAGS  ?= -Wall -Wextra -std=c99 -pedantic \
-	-march=native -Os -pipe -s
-	#-O0 -pg -g
+	-O3 -pipe -s \
+	-I/usr/local/include
 
 HDR = ../stb_image.h ../libnsgif.h ../libnsbmp.h
 SRC = ../libnsgif.c ../libnsbmp.c
