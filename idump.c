@@ -57,7 +57,8 @@ char *make_temp_file(const char *template)
 
 	/* read data */
 	while ((size = read(STDIN_FILENO, buf, BUFSIZE)) > 0) {
-		write(fd, buf, size);
+		if (write(fd, buf, size) != size)
+			logging(ERROR, "write error\n");
 		file_size += size;
 	}
 	eclose(fd);
