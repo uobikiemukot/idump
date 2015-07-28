@@ -1,8 +1,7 @@
 /* See LICENSE for licence details. */
 #include "idump.h"
 #include "util.h"
-//#include "framebuffer.h"
-#include "fb/common.h"
+#include "yafblib/yafblib.h"
 #include "loader.h"
 #include "image.h"
 

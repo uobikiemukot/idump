@@ -1,7 +1,7 @@
 /* See LICENSE for licence details. */
 #include "yaimgfb.h"
 #include "../util.h"
-#include "../fb/common.h"
+#include "../yafblib/yafblib.h"
 #include "../loader.h"
 #include "../image.h"
 #include "parsearg.h"
