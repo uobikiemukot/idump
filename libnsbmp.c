@@ -82,9 +82,11 @@
 #define ICO_FILE_HEADER_SIZE 6
 #define ICO_DIR_ENTRY_SIZE 16
 
+/*
 static inline int8_t read_int8(uint8_t *data, unsigned int o) {
 	return (int8_t) data[o];
 }
+*/
 
 static inline uint8_t read_uint8(uint8_t *data, unsigned int o) {
 	return (uint8_t) data[o];
