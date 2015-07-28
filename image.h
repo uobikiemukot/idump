@@ -265,7 +265,7 @@ void draw_image_single(struct framebuffer_t *fb, struct image_t *img, uint8_t *d
 {
 	int offset, size;
 	uint8_t r, g, b;
-	uint32_t color;
+	uint32_t pixel;
 
 	for (int y = 0; y < height; y++) {
 		if (y >= fb->info.height)
@@ -276,11 +276,11 @@ void draw_image_single(struct framebuffer_t *fb, struct image_t *img, uint8_t *d
 				break;
 
 			get_rgb(img, data, x + shift_x, y + shift_y, &r, &g, &b);
-			color = color2pixel(&fb->info, (r << 16) + (g << 8) + b);
+			pixel = color2pixel(&fb->info, (uint32_t) ((r << 16) + (g << 8) + b));
 
 			/* update copy buffer */
 			offset = (y + offset_y) * fb->info.line_length + (x + offset_x) * fb->info.bytes_per_pixel;
-			memcpy(fb->buf + offset, &color, fb->info.bytes_per_pixel);
+			memcpy(fb->buf + offset, &pixel, fb->info.bytes_per_pixel);
 		}
 		/* draw each scanline */
 		if (width < fb->info.width) {
