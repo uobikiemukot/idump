@@ -1,5 +1,5 @@
 CC      ?= gcc
-LDFLAGS ?= -lpng -ljpeg -L/usr/local/lib
+LDFLAGS ?= -lpng -ljpeg -ltiff -L/usr/local/lib
 CFLAGS  ?= -Wall -Wextra -std=c99 -pedantic \
 	-O3 -pipe -s \
 	-I/usr/local/include
