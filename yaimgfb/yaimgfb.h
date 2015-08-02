@@ -22,6 +22,7 @@ enum {
 	BUFSIZE   = 1024,
 	MULTIPLER = 1024,
 	MAX_IMAGE = 1024,
+	ALPHA_BACKGROUND = 0xFF,
 };
 
 enum w3m_op {

@@ -17,6 +17,7 @@ void usage()
 		"\t-h: show this help\n"
 		"\t-f: fit image to display\n"
 		"\t-r: rotate image (90/180/270)\n"
+		"\t-b: transparent background color (0-255)\n"
 		);
 }
 
@@ -77,11 +78,12 @@ int main(int argc, char **argv)
 	char *file;
 	bool resize = false;
 	int angle = 0, opt;
+	uint8_t alpha_background = ALPHA_BACKGROUND;
 	struct framebuffer_t fb;
 	struct image_t img;
 
 	/* check arg */
-	while ((opt = getopt(argc, argv, "hfr:")) != -1) {
+	while ((opt = getopt(argc, argv, "hfr:b:")) != -1) {
 		switch (opt) {
 		case 'h':
 			usage();
@@ -91,6 +93,9 @@ int main(int argc, char **argv)
 			break;
 		case 'r':
 			angle = str2num(optarg);
+			break;
+		case 'b':
+			alpha_background = str2num(optarg);
 			break;
 		default:
 			break;
@@ -129,7 +134,7 @@ int main(int argc, char **argv)
 	if (resize)
 		resize_image(&img, fb.info.width, fb.info.height, true);
 
-	draw_image(&fb, &img, 0, 0, 0, 0, img.width, img.height, true);
+	draw_image(&fb, &img, 0, 0, 0, 0, img.width, img.height, alpha_background, true);
 
 	/* cleanup resource */
 	free_image(&img);

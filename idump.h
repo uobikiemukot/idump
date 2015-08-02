@@ -21,4 +21,5 @@ enum {
 	VERBOSE   = false,
 	BUFSIZE   = 1024,
 	MULTIPLER = 1024,
+	ALPHA_BACKGROUND = 0xFF,
 };

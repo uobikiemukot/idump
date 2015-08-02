@@ -114,7 +114,7 @@ bool load_jpeg(const char *path, FILE *fp, struct image_t *img)
 
 	/* disable colormap (indexed color), grayscale -> rgb */
 	cinfo.quantize_colors = FALSE;
-	//cinfo.out_color_space = JCS_RGB;
+	cinfo.out_color_space = JCS_RGB;
 	jpeg_start_decompress(&cinfo);
 
 	img->width   = cinfo.output_width;
@@ -188,18 +188,17 @@ bool load_png(const char *path, FILE *fp, struct image_t *img)
 	png_init_io(png_ptr, fp);
 	png_set_sig_bytes(png_ptr, PNG_HEADER_SIZE);
 	/* force 3 bytes per pixel image
-		-	strip alpha
+		(-	strip alpha)
 		-	6 bytes per pixel -> 3 bytes per pixel
 		-	1,2,4 bits per color -> 8 bits per color
 		-	grayscale -> rgb
 		-	perform set_expand() */
-	/*
 	png_read_png(png_ptr, info_ptr,
-		PNG_TRANSFORM_STRIP_ALPHA | PNG_TRANSFORM_STRIP_16 |
-		PNG_TRANSFORM_PACKING | PNG_TRANSFORM_GRAY_TO_RGB |
-		PNG_TRANSFORM_EXPAND, NULL);
-	*/
-	png_read_png(png_ptr, info_ptr, PNG_TRANSFORM_PACKING, NULL);
+		PNG_TRANSFORM_STRIP_16 | PNG_TRANSFORM_PACKING
+		| PNG_TRANSFORM_GRAY_TO_RGB | PNG_TRANSFORM_EXPAND, NULL);
+		//PNG_TRANSFORM_STRIP_ALPHA
+
+	//png_read_png(png_ptr, info_ptr, PNG_TRANSFORM_PACKING, NULL);
 
 	img->width   = png_get_image_width(png_ptr, info_ptr);
 	img->height  = png_get_image_height(png_ptr, info_ptr);
@@ -648,7 +647,6 @@ bool load_image(const char *path, struct image_t *img)
 
 image_load_error:
 	logging(ERROR, "image load error: %s\n", path);
-	//release_image(img);
 	efclose(fp);
 	return false;
 }
