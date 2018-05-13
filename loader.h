@@ -6,6 +6,9 @@
 /* for png */
 #include <png.h>
 
+/* for tiff */
+#include <tiffio.h>
+
 /* for gif/bmp/(ico not supported) */
 #include "libnsgif.h"
 #include "libnsbmp.h"
@@ -25,6 +28,7 @@ enum {
 enum filetype_t {
 	TYPE_JPEG,
 	TYPE_PNG,
+	TYPE_TIFF,
 	TYPE_BMP,
 	TYPE_GIF,
 	TYPE_PNM,
@@ -85,12 +89,14 @@ void my_jpeg_warning(j_common_ptr cinfo, int msg_level)
 	}
 }
 
-bool load_jpeg(FILE *fp, struct image_t *img)
+bool load_jpeg(const char *path, FILE *fp, struct image_t *img)
 {
 	int row_stride, size;
 	JSAMPARRAY buffer;
 	struct jpeg_decompress_struct cinfo;
 	struct my_jpeg_error_mgr jerr;
+
+	(void) path;
 
 	cinfo.err = jpeg_std_error(&jerr.pub);
 	jerr.pub.error_exit = my_jpeg_exit;
@@ -108,7 +114,7 @@ bool load_jpeg(FILE *fp, struct image_t *img)
 
 	/* disable colormap (indexed color), grayscale -> rgb */
 	cinfo.quantize_colors = FALSE;
-	//cinfo.out_color_space = JCS_RGB;
+	cinfo.out_color_space = JCS_RGB;
 	jpeg_start_decompress(&cinfo);
 
 	img->width   = cinfo.output_width;
@@ -137,7 +143,6 @@ bool load_jpeg(FILE *fp, struct image_t *img)
 }
 
 /* libpng function */
-
 void my_png_error(png_structp png_ptr, png_const_charp error_msg)
 {
 	logging(ERROR, "libpng: %s\n", error_msg);
@@ -151,7 +156,7 @@ void my_png_warning(png_structp png_ptr, png_const_charp warning_msg)
 	logging(WARN, "libpng: %s\n", warning_msg);
 }
 
-bool load_png(FILE *fp, struct image_t *img)
+bool load_png(const char *path, FILE *fp, struct image_t *img)
 {
 	int row_stride, size;
 	png_bytep *row_pointers = NULL;
@@ -159,7 +164,10 @@ bool load_png(FILE *fp, struct image_t *img)
 	png_structp png_ptr;
 	png_infop info_ptr;
 
-	fread(header, 1, PNG_HEADER_SIZE, fp);
+	(void) path;
+
+	if (fread(header, 1, PNG_HEADER_SIZE, fp) != PNG_HEADER_SIZE)
+		return false;
 
 	if (png_sig_cmp(header, 0, PNG_HEADER_SIZE))
 		return false;
@@ -180,18 +188,17 @@ bool load_png(FILE *fp, struct image_t *img)
 	png_init_io(png_ptr, fp);
 	png_set_sig_bytes(png_ptr, PNG_HEADER_SIZE);
 	/* force 3 bytes per pixel image
-		-	strip alpha
+		(-	strip alpha)
 		-	6 bytes per pixel -> 3 bytes per pixel
 		-	1,2,4 bits per color -> 8 bits per color
 		-	grayscale -> rgb
 		-	perform set_expand() */
-	/*
 	png_read_png(png_ptr, info_ptr,
-		PNG_TRANSFORM_STRIP_ALPHA | PNG_TRANSFORM_STRIP_16 |
-		PNG_TRANSFORM_PACKING | PNG_TRANSFORM_GRAY_TO_RGB |
-		PNG_TRANSFORM_EXPAND, NULL);
-	*/
-	png_read_png(png_ptr, info_ptr, PNG_TRANSFORM_PACKING, NULL);
+		PNG_TRANSFORM_STRIP_16 | PNG_TRANSFORM_PACKING
+		| PNG_TRANSFORM_GRAY_TO_RGB | PNG_TRANSFORM_EXPAND, NULL);
+		//PNG_TRANSFORM_STRIP_ALPHA
+
+	//png_read_png(png_ptr, info_ptr, PNG_TRANSFORM_PACKING, NULL);
 
 	img->width   = png_get_image_width(png_ptr, info_ptr);
 	img->height  = png_get_image_height(png_ptr, info_ptr);
@@ -212,6 +219,53 @@ bool load_png(FILE *fp, struct image_t *img)
 	png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
 
 	return true;
+}
+
+/* libtiff functions */
+bool load_tiff(const char *path, FILE *fp, struct image_t *img)
+{
+    TIFF *tiff;
+	/*
+	uint16_t bps, type, planar, orient;
+	uint32_t rps;
+	*/
+	int size;
+
+	(void) fp;
+
+    if ((tiff = TIFFOpen(path, "r")) == NULL)
+		return false;
+
+    if (!TIFFGetField(tiff, TIFFTAG_IMAGEWIDTH, &img->width)
+        || !TIFFGetField(tiff, TIFFTAG_IMAGELENGTH, &img->height))
+		/*
+        || !TIFFGetField(tiff, TIFFTAG_SAMPLESPERPIXEL, &img->channel)
+        || !TIFFGetField(tiff, TIFFTAG_BITSPERSAMPLE, &bps)
+        || !TIFFGetField(tiff, TIFFTAG_PHOTOMETRIC, &type)
+        || !TIFFGetField(tiff, TIFFTAG_PLANARCONFIG, &planar)
+        || !TIFFGetField(tiff, TIFFTAG_ROWSPERSTRIP, &rps)
+        || !TIFFGetField(tiff, TIFFTAG_ORIENTATION, &orient))
+		*/
+        return false;
+
+    logging(DEBUG, "width:%d height:%d\n", img->width, img->height);
+		
+	/*
+	logging(DEBUG, "bps:%d type:%d planar:%d rps:%d orient:%d\n",
+		bps, type, planar, rps, orient);
+	*/
+	
+	img->channel = 4; /* because TIFFReadRGBAImage() converts image channel == 4 */
+	size = img->width * img->height * img->channel;
+	if ((img->data[0] = (uint8_t *) ecalloc(1, size)) == NULL
+		|| !TIFFReadRGBAImageOriented(tiff, img->width, img->height, (uint32_t *) img->data[0], ORIENTATION_TOPLEFT, 0)) {
+		TIFFClose(tiff);
+		return false;
+	}
+
+	TIFFClose(tiff);
+
+    return true;
 }
 
 /* libns{gif,bmp} functions */
@@ -269,7 +323,7 @@ void gif_bitmap_modified(void *bitmap)
 	return;
 }
 
-bool load_gif(FILE *fp, struct image_t *img)
+bool load_gif(const char *path, FILE *fp, struct image_t *img)
 {
 	gif_bitmap_callback_vt gif_callbacks = {
 		gif_bitmap_create,
@@ -284,6 +338,8 @@ bool load_gif(FILE *fp, struct image_t *img)
 	unsigned char *mem;
 	gif_animation gif;
 	int i;
+
+	(void) path;
 
 	gif_create(&gif, &gif_callbacks);
 	if ((mem = file_into_memory(fp, &size)) == NULL)
@@ -352,7 +408,7 @@ size_t bmp_bitmap_get_bpp(void *bitmap)
 	return BYTES_PER_PIXEL;
 }
 
-bool load_bmp(FILE *fp, struct image_t *img)
+bool load_bmp(const char *path, FILE *fp, struct image_t *img)
 {
 	bmp_bitmap_callback_vt bmp_callbacks = {
 		bmp_bitmap_create,
@@ -364,6 +420,8 @@ bool load_bmp(FILE *fp, struct image_t *img)
 	size_t size;
 	unsigned char *mem;
 	bmp_image bmp;
+
+	(void) path;
 
 	bmp_create(&bmp, &bmp_callbacks);
 	if ((mem = file_into_memory(fp, &size)) == NULL)
@@ -398,7 +456,7 @@ error_analyse_failed:
 }
 
 /* pnm functions */
-inline int getint(FILE *fp)
+int getint(FILE *fp)
 {
 	int c, n = 0;
 
@@ -413,7 +471,7 @@ inline int getint(FILE *fp)
 	return n;
 }
 
-inline uint8_t pnm_normalize(int c, int type, int max_value)
+uint8_t pnm_normalize(int c, int type, int max_value)
 {
 	if (type == 1 || type == 4)
 		return (c == 0) ? 0: 0xFF;
@@ -421,9 +479,11 @@ inline uint8_t pnm_normalize(int c, int type, int max_value)
 		return 0xFF * c / max_value;
 }
 
-bool load_pnm(FILE *fp, struct image_t *img)
+bool load_pnm(const char *path, FILE *fp, struct image_t *img)
 {
 	int size, type, c, count, max_value = 0;
+
+	(void) path;
 
 	if (fgetc(fp) != 'P')
 		return false;
@@ -493,6 +553,9 @@ enum filetype_t check_filetype(FILE *fp)
 	uint8_t header[CHECK_HEADER_SIZE];
 	static uint8_t jpeg_header[] = {0xFF, 0xD8};
 	static uint8_t png_header[]  = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+	/* little endian and big endian: BigTiff not supported */
+	static uint8_t tiff_header1[] = {0x49, 0x49, 0x2A, 0x00}, 
+		tiff_header2[] = {0x4D, 0x4D, 0x00, 0x2A}; 
 	static uint8_t gif_header[]  = {0x47, 0x49, 0x46};
 	static uint8_t bmp_header[]  = {0x42, 0x4D};
 	size_t size;
@@ -507,6 +570,8 @@ enum filetype_t check_filetype(FILE *fp)
 		return TYPE_JPEG;
 	else if (memcmp(header, png_header, 8) == 0)
 		return TYPE_PNG;
+	else if (memcmp(header, tiff_header1, 4) == 0 || memcmp(header, tiff_header2, 4) == 0)
+		return TYPE_TIFF;
 	else if (memcmp(header, gif_header, 3) == 0)
 		return TYPE_GIF;
 	else if (memcmp(header, bmp_header, 2) == 0)
@@ -542,7 +607,7 @@ void free_image(struct image_t *img)
 	}
 }
 
-bool load_image(const char *file, struct image_t *img)
+bool load_image(const char *path, struct image_t *img)
 {
 	int i;
 	enum filetype_t type;
@@ -550,23 +615,24 @@ bool load_image(const char *file, struct image_t *img)
 
 	init_image(img);
 
-	static bool (*loader[])(FILE *fp, struct image_t *img) = {
+	static bool (*loader[])(const char *path, FILE *fp, struct image_t *img) = {
 		[TYPE_JPEG] = load_jpeg,
 		[TYPE_PNG]  = load_png,
+		[TYPE_TIFF] = load_tiff,
 		[TYPE_GIF]  = load_gif,
 		[TYPE_BMP]  = load_bmp,
 		[TYPE_PNM]  = load_pnm,
 	};
 
-	if ((fp = efopen(file, "r")) == NULL)
+	if ((fp = efopen(path, "r")) == NULL)
 		return false;
  
 	if ((type = check_filetype(fp)) == TYPE_UNKNOWN) {
-		logging(ERROR, "unknown file type: %s\n", file);
+		logging(ERROR, "unknown file type: %s\n", path);
 		goto image_load_error;
 	}
 
-	if (loader[type](fp, img)) {
+	if (loader[type](path, fp, img)) {
 		img->alpha = (img->channel == 2 || img->channel == 4) ? true: false;
 		logging(DEBUG, "image width:%d height:%d channel:%d alpha:%s\n",
 			img->width, img->height, img->channel, (img->alpha) ? "true": "false");
@@ -580,8 +646,7 @@ bool load_image(const char *file, struct image_t *img)
 	}
 
 image_load_error:
-	logging(ERROR, "image load error: %s\n", file);
-	//release_image(img);
+	logging(ERROR, "image load error: %s\n", path);
 	efclose(fp);
 	return false;
 }

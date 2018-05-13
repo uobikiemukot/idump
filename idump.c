@@ -1,8 +1,7 @@
 /* See LICENSE for licence details. */
 #include "idump.h"
 #include "util.h"
-//#include "framebuffer.h"
-#include "fb/common.h"
+#include "yafblib/yafblib.h"
 #include "loader.h"
 #include "image.h"
 
@@ -18,6 +17,8 @@ void usage()
 		"\t-h: show this help\n"
 		"\t-f: fit image to display\n"
 		"\t-r: rotate image (90/180/270)\n"
+		"\t-c: center image\n"
+		"\t-b: transparent background color (0-255)\n"
 		);
 }
 
@@ -58,7 +59,8 @@ char *make_temp_file(const char *template)
 
 	/* read data */
 	while ((size = read(STDIN_FILENO, buf, BUFSIZE)) > 0) {
-		write(fd, buf, size);
+		if (write(fd, buf, size) != size)
+			logging(ERROR, "write error\n");
 		file_size += size;
 	}
 	eclose(fd);
@@ -76,21 +78,30 @@ int main(int argc, char **argv)
 	const char *template = "sdump.XXXXXX";
 	char *file;
 	bool resize = false;
+	bool center = false;
+	bool blank = false;
 	int angle = 0, opt;
+	uint8_t alpha_background = ALPHA_BACKGROUND;
 	struct framebuffer_t fb;
 	struct image_t img;
 
 	/* check arg */
-	while ((opt = getopt(argc, argv, "hfr:")) != -1) {
+	while ((opt = getopt(argc, argv, "hcfr:b:")) != -1) {
 		switch (opt) {
 		case 'h':
 			usage();
 			return EXIT_SUCCESS;
+		case 'c':
+			center = true;
+			break;
 		case 'f':
 			resize = true;
 			break;
 		case 'r':
 			angle = str2num(optarg);
+			break;
+		case 'b':
+			alpha_background = str2num(optarg);
 			break;
 		default:
 			break;
@@ -126,11 +137,30 @@ int main(int argc, char **argv)
 	if (angle != 0)
 		rotate_image(&img, angle, true);
 
+	
 	if (resize)
 		resize_image(&img, fb.info.width, fb.info.height, true);
 
-	draw_image(&fb, &img, 0, 0, 0, 0, img.width, img.height, true);
-
+	/* center image */
+	if (center) {
+		int posx = 0;
+		int shiftx = 0;
+		int posy = 0;
+		int shifty = 0;
+		if (fb.info.width - img.width < 0) {
+			shiftx = -(fb.info.width - img.width) / 2;
+		} else {
+			posx = (fb.info.width - img.width) / 2;
+		}
+		if (fb.info.height - img.height < 0) {
+			shifty = -(fb.info.height - img.height) / 2;
+		} else {
+			posy = (fb.info.height - img.height) / 2;
+		}
+		draw_image(&fb, &img, posx, posy, shiftx, shifty, img.width, img.height, alpha_background, true);
+	} else {
+		draw_image(&fb, &img, 0, 0, 0, 0, img.width, img.height, alpha_background, true);
+	}
 	/* cleanup resource */
 	free_image(&img);
 	fb_die(&fb);

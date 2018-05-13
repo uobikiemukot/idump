@@ -38,7 +38,7 @@ static inline int get_image_channel(struct image_t *img)
 	return img->channel;
 }
 
-static inline void get_rgb(struct image_t *img, uint8_t *data, int x, int y, uint8_t *r, uint8_t *g, uint8_t *b)
+static inline void get_rgb(struct image_t *img, uint8_t *data, int x, int y, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *a)
 {
 	uint8_t *ptr;
 
@@ -46,8 +46,12 @@ static inline void get_rgb(struct image_t *img, uint8_t *data, int x, int y, uin
 
 	if (img->channel <= 2) { /* grayscale (+ alpha) */
 		*r = *g = *b = *ptr;
+		if (img->alpha && a)
+			*a = *(ptr + 1);
 	} else {                 /* rgb (+ alpha) */
 		*r = *ptr; *g = *(ptr + 1); *b = *(ptr + 2);
+		if (img->alpha && a)
+			*a = *(ptr + 3);
 	}
 }
 
@@ -60,7 +64,7 @@ static inline void get_average(struct image_t *img, uint8_t *data, int x_from, i
 	rsum = gsum = bsum = 0;
 	for (int y = y_from; y < y_to; y++) {
 		for (int x = x_from; x < x_to; x++) {
-			get_rgb(img, data, x, y, &r, &g, &b);
+			get_rgb(img, data, x, y, &r, &g, &b, NULL);
 			rsum += r; gsum += g; bsum += b;
 		}
 	}
@@ -231,7 +235,7 @@ uint8_t *normalize_bpp_single(struct image_t *img, uint8_t *data, int bytes_per_
 	} else {                 /* rgb (+ alpha) */
 		for (int y = 0; y < img->height; y++) {
 			for (int x = 0; x < img->width; x++) {
-				get_rgb(img, data, x, y, &r, &g, &b);
+				get_rgb(img, data, x, y, &r, &g, &b, NULL);
 				dst = normalized_data + bytes_per_pixel * (y * img->width + x);
 				*dst = r; *(dst + 1) = g; *(dst + 2) = b;
 			}
@@ -261,11 +265,11 @@ void normalize_bpp(struct image_t *img, int bytes_per_pixel, bool normalize_all)
 }
 
 void draw_image_single(struct framebuffer_t *fb, struct image_t *img, uint8_t *data,
-	int offset_x, int offset_y, int shift_x, int shift_y, int width, int height)
+	int offset_x, int offset_y, int shift_x, int shift_y, int width, int height, uint8_t alpha_background)
 {
 	int offset, size;
-	uint8_t r, g, b;
-	uint32_t color;
+	uint8_t r, g, b, a;
+	uint32_t color, pixel, br, bg, bb;
 
 	for (int y = 0; y < height; y++) {
 		if (y >= fb->info.height)
@@ -275,12 +279,23 @@ void draw_image_single(struct framebuffer_t *fb, struct image_t *img, uint8_t *d
 			if (x >= fb->info.width)
 				break;
 
-			get_rgb(img, data, x + shift_x, y + shift_y, &r, &g, &b);
-			color = color2pixel(&fb->info, (r << 16) + (g << 8) + b);
+			if (img->alpha) { /* alpha brend */
+				get_rgb(img, data, x + shift_x, y + shift_y, &r, &g, &b, &a);
+				//logging(WARN, "r:0x%.2X g:0x%.2X b:0x%.2X a:0x%.2X\n", r, g, b, a);
+				br = (((uint32_t) r * a) + alpha_background * (0xFF - a)) / 0xFF;
+				bg = (((uint32_t) g * a) + alpha_background * (0xFF - a)) / 0xFF;
+				bb = (((uint32_t) b * a) + alpha_background * (0xFF - a)) / 0xFF;
+				//logging(WARN, "br:0x%.2X bg:0x%.2X bb:0x%.2X\n", br, bg, bb);
+				color = (br  << 16) + (bg  << 8) + bb;
+			} else {
+				get_rgb(img, data, x + shift_x, y + shift_y, &r, &g, &b, NULL);
+				color = (r  << 16) + (g  << 8) + b;
+			}
+			pixel = color2pixel(&fb->info, color);
 
 			/* update copy buffer */
 			offset = (y + offset_y) * fb->info.line_length + (x + offset_x) * fb->info.bytes_per_pixel;
-			memcpy(fb->buf + offset, &color, fb->info.bytes_per_pixel);
+			memcpy(fb->buf + offset, &pixel, fb->info.bytes_per_pixel);
 		}
 		/* draw each scanline */
 		if (width < fb->info.width) {
@@ -298,7 +313,8 @@ void draw_image_single(struct framebuffer_t *fb, struct image_t *img, uint8_t *d
 }
 
 void draw_image(struct framebuffer_t *fb, struct image_t *img,
-	int offset_x, int offset_y, int shift_x, int shift_y, int width, int height, bool enable_anim)
+	int offset_x, int offset_y, int shift_x, int shift_y, int width, int height,
+	uint8_t alpha_background, bool enable_anim)
 {
 	/*
 		+- screen -----------------+
@@ -342,11 +358,13 @@ void draw_image(struct framebuffer_t *fb, struct image_t *img,
 	/* XXX: ignore img->loop_count, force 1 loop */
 	if (enable_anim) {
 		while (loop_count < img->frame_count) {
-			draw_image_single(fb, img, img->data[loop_count], offset_x, offset_y, shift_x, shift_y, width, height);
+			draw_image_single(fb, img, img->data[loop_count],
+				offset_x, offset_y, shift_x, shift_y, width, height, alpha_background);
 			usleep(img->delay[loop_count] * 10000); /* gif delay 1 == 1/100 sec */
 			loop_count++;
 		}
 	} else {
-		draw_image_single(fb, img, img->data[img->current_frame], offset_x, offset_y, shift_x, shift_y, width, height);
+		draw_image_single(fb, img, img->data[img->current_frame],
+			offset_x, offset_y, shift_x, shift_y, width, height, alpha_background);
 	}
 }

@@ -1,12 +1,12 @@
 /* See LICENSE for licence details. */
 #include "yaimgfb.h"
 #include "../util.h"
-#include "../fb/common.h"
+#include "../yafblib/yafblib.h"
 #include "../loader.h"
 #include "../image.h"
 #include "parsearg.h"
 
-void w3m_draw(struct framebuffer_t *fb, struct image_t imgs[], struct parm_t *parm, int op)
+void w3m_draw(struct framebuffer_t *fb, struct image_t imgs[], struct parm_t *parm, uint8_t alpha_background, int op)
 {
 	int index, offset_x, offset_y, width, height, shift_x, shift_y, view_w, view_h;
 	char *file;
@@ -57,7 +57,7 @@ void w3m_draw(struct framebuffer_t *fb, struct image_t imgs[], struct parm_t *pa
 		resize_image(img, width, height, true);
 
 	draw_image(fb, img, offset_x, offset_y, shift_x, shift_y,
-		(view_w ? view_w: width), (view_h ? view_h: height), false);
+		(view_w ? view_w: width), (view_h ? view_h: height), alpha_background, false);
 }
 
 void w3m_stop()
@@ -166,7 +166,7 @@ int main(int argc, char *argv[])
 {
 	/*
 	command line option
-	  -bg    : background color (for transparent image?)
+	  -bg    : background color (for transparent image?) range:0-255
 	  -x     : image position offset x
 	  -y     : image position offset x
 	  -test  : request display size (response "width height\n")
@@ -201,6 +201,7 @@ int main(int argc, char *argv[])
 	*/
 	int i, op, optind;
 	char buf[BUFSIZE], *cp;
+	uint8_t alpha_background = ALPHA_BACKGROUND;
 	struct framebuffer_t fb;
 	struct image_t img[MAX_IMAGE];
 	struct parm_t parm;
@@ -227,10 +228,11 @@ int main(int argc, char *argv[])
 		if (strncmp(argv[optind], "-test", 5) == 0) {
 			printf("%d %d\n", fb.info.width, fb.info.height);
 			goto release;
-		}
-		else if (strncmp(argv[optind], "-size", 5) == 0 && ++optind < argc) {
+		} else if (strncmp(argv[optind], "-size", 5) == 0 && ++optind < argc) {
 			w3m_getsize(&img[0], argv[optind]);
 			goto release;
+		} else if (strncmp(argv[optind], "-bg", 3) == 0 && ++optind < argc) {
+			alpha_background = str2num(argv[optind]);
 		}
 		optind++;
 	}
@@ -264,7 +266,7 @@ int main(int argc, char *argv[])
 		switch (op) {
 			case W3M_DRAW:
 			case W3M_REDRAW:
-				w3m_draw(&fb, img, &parm, op);
+				w3m_draw(&fb, img, &parm, alpha_background, op);
 				break;
 			case W3M_STOP:
 				w3m_stop();

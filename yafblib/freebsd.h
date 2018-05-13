@@ -12,7 +12,7 @@ typedef unsigned long   u_long;
 #include <sys/types.h>
 
 typedef struct fbcmap cmap_t;
-const char *fb_path = "/dev/tty";
+const char *fb_path = "/dev/ttyv0";
 
 enum {
 	CMAP_COLOR_LENGTH = sizeof(u_char) * BITS_PER_BYTE,

@@ -1,19 +1,18 @@
 /* See LICENSE for licence details. */
-#include "color.h"
-
 enum misc {
 	BITS_PER_BYTE = 8,
+	BITS_PER_RGB  = 8,
 };
 
-const uint32_t bit_mask[] = {
-	0x00,
-	0x01,       0x03,       0x07,       0x0F,
-	0x1F,       0x3F,       0x7F,       0xFF,
-	0x1FF,      0x3FF,      0x7FF,      0xFFF,
-	0x1FFF,     0x3FFF,     0x7FFF,     0xFFFF,
-	0x1FFFF,    0x3FFFF,    0x7FFFF,    0xFFFFF,
-	0x1FFFFF,   0x3FFFFF,   0x7FFFFF,   0xFFFFFF,
-	0x1FFFFFF,  0x3FFFFFF,  0x7FFFFFF,  0xFFFFFFF,
+const unsigned int bit_mask[] = {
+	0x00000000,
+	0x00000001, 0x00000003, 0x00000007, 0x0000000F,
+	0x0000001F, 0x0000003F, 0x0000007F, 0x000000FF,
+	0x000001FF, 0x000003FF, 0x000007FF, 0x00000FFF,
+	0x00001FFF, 0x00003FFF, 0x00007FFF, 0x0000FFFF,
+	0x0001FFFF, 0x0003FFFF, 0x0007FFFF, 0x000FFFFF,
+	0x001FFFFF, 0x003FFFFF, 0x007FFFFF, 0x00FFFFFF,
+	0x01FFFFFF, 0x03FFFFFF, 0x07FFFFFF, 0x0FFFFFFF,
 	0x1FFFFFFF, 0x3FFFFFFF, 0x7FFFFFFF, 0xFFFFFFFF,
 };
 
@@ -43,44 +42,29 @@ struct fb_info_t {
 	int bits_per_pixel;
 	enum fb_type type;
 	enum fb_visual visual;
-	int reserved;            /* os specific data */
+	int reserved[4];         /* os specific data */
 };
 
 /* os dependent typedef/include */
 #if defined(__linux__)
-    #include "linux.h"
+	#include "linux.h"
 #elif defined(__FreeBSD__)
-    #include "freebsd.h"
+	#include "freebsd.h"
 #elif defined(__NetBSD__)
-    #include "netbsd.h"
+	#include "netbsd.h"
 #elif defined(__OpenBSD__)
-    #include "openbsd.h"
+	#include "openbsd.h"
 #endif
 
 struct framebuffer_t {
-	int fd;                        /* file descriptor of framebuffer */
-	uint8_t *fp;                   /* pointer of framebuffer */
-	uint8_t *buf;                  /* copy of framebuffer */
-	uint8_t *wall;                 /* buffer for wallpaper */
-	uint32_t real_palette[COLORS]; /* hardware specific color palette */
+	int fd;                   /* file descriptor of framebuffer */
+	uint8_t *fp;              /* pointer of framebuffer */
+	uint8_t *buf;             /* copy of framebuffer */
 	struct fb_info_t info;
 	cmap_t *cmap, *cmap_orig;
 };
 
 /* common framebuffer functions */
-uint8_t *load_wallpaper(uint8_t *fp, long screen_size)
-{
-	uint8_t *ptr;
-
-	if ((ptr = (uint8_t *) ecalloc(1, screen_size)) == NULL) {
-		logging(ERROR, "couldn't allocate wallpaper buffer\n");
-		return NULL;
-	}
-	memcpy(ptr, fp, screen_size);
-
-	return ptr;
-}
-
 void cmap_die(cmap_t *cmap)
 {
 	if (cmap) {
@@ -304,8 +288,7 @@ void fb_print_info(struct fb_info_t *info)
 
 bool fb_init(struct framebuffer_t *fb)
 {
-	extern const uint32_t color_list[COLORS]; /* defined in color.h */
-	extern const char *fb_path;               /* defined in conf.h */
+	extern const char *fb_path; /* defined in {linux,freebsd,netbsd,openbsd}.h */
 	const char *path;
 	char *env;
 
@@ -325,8 +308,6 @@ bool fb_init(struct framebuffer_t *fb)
 	fb->fp   = (uint8_t *) emmap(0, fb->info.screen_size,
 				PROT_WRITE | PROT_READ, MAP_SHARED, fb->fd, 0);
 	fb->buf  = (uint8_t *) ecalloc(1, fb->info.screen_size);
-	fb->wall = ((env = getenv("YAFT")) && strstr(env, "wall")) ?
-				load_wallpaper(fb->fp, fb->info.screen_size): NULL;
 
 	/* error check */
 	if (fb->fp == MAP_FAILED || !fb->buf)
@@ -351,16 +332,11 @@ bool fb_init(struct framebuffer_t *fb)
 		goto fb_init_failed;
 	}
 
-	/* init color palette */
-	for (int i = 0; i < COLORS; i++)
-		fb->real_palette[i] = color2pixel(&fb->info, color_list[i]);
-
 	return true;
 
 fb_init_failed:
 allocate_failed:
 	free(fb->buf);
-	free(fb->wall);
 	if (fb->fp != MAP_FAILED)
 		emunmap(fb->fp, fb->info.screen_size);
 set_fbinfo_failed:
@@ -375,9 +351,7 @@ void fb_die(struct framebuffer_t *fb)
 		put_cmap(fb->fd, fb->cmap_orig);
 		cmap_die(fb->cmap_orig);
 	}
-	free(fb->wall);
 	free(fb->buf);
 	emunmap(fb->fp, fb->info.screen_size);
 	eclose(fb->fd);
-	//fb_release(fb->fd, &fb->info); /* os specific */
 }

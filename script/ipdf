@@ -4,7 +4,8 @@ export FRAMEBUFFER=/dev/fb0
 
 FILE=$1
 IDUMP_OPT="-f"
-MUDRAW_OPT="-o /dev/stdout -F png -h 1024"
+SCREEN_HEIGHT="1024"
+MUDRAW_OPT="-o - -F png -h $SCREEN_HEIGHT"
 
 INDEX=1 # page origin:1
 PAGES=`mutool info $FILE | grep "^Pages:" | cut -d" " -f2`
@@ -13,7 +14,7 @@ tput civis
 #tput clear
 
 #echo "filename:$FILE page:$INDEX"
-mudraw $MUDRAW_OPT $FILE $INDEX 2> /dev/null | idump $IDUMP_OPT > /dev/null 2>&1
+mutool draw $MUDRAW_OPT $FILE $INDEX 2> /dev/null | idump $IDUMP_OPT > /dev/null 2>&1
 
 while :; do
 	read -s -n 1 KEY
